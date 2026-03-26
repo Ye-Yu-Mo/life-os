@@ -14,6 +14,7 @@ describe('App routing', () => {
     expect(
       screen.getByText(/先保留原始表达，再进入结构化链路/i),
     ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /import raw logs/i })).toBeInTheDocument()
   })
 
   it('redirects unknown routes back to input page', () => {

@@ -79,6 +79,19 @@
   margin-bottom: 0;
 }
 
+.log-import-label {
+  color: #23354b;
+  font-weight: 600;
+}
+
+.log-import-file-input {
+  width: 100%;
+  border: 1px dashed rgba(68, 96, 129, 0.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(247, 250, 253, 0.88);
+}
+
 .log-result-grid {
   display: grid;
   grid-template-columns: 140px 1fr;
