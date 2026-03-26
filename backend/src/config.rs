@@ -4,6 +4,7 @@ use crate::error::AppError;
 pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
+    pub ai: AiConfig,
     pub telegram: TelegramConfig,
     pub feishu: FeishuConfig,
     pub wechat_bridge: WechatBridgeConfig,
@@ -19,6 +20,26 @@ pub struct ServerConfig {
 pub struct DatabaseConfig {
     pub url: String,
     pub max_connections: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiConfig {
+    pub model_payload_encoding: ModelPayloadEncoding,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelPayloadEncoding {
+    Json,
+    Toon,
+}
+
+impl ModelPayloadEncoding {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::Toon => "toon",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +114,11 @@ impl Config {
             .map(|value| parse_bool(value, "TELEGRAM_ENABLED"))
             .transpose()?
             .unwrap_or(false);
+        let model_payload_encoding = env
+            .get("AI_MODEL_PAYLOAD_ENCODING")
+            .map(|value| parse_model_payload_encoding(value))
+            .transpose()?
+            .unwrap_or(ModelPayloadEncoding::Toon);
         let telegram_bot_token = env
             .get("TELEGRAM_BOT_TOKEN")
             .map(|value| value.trim().to_string())
@@ -149,6 +175,9 @@ impl Config {
                 url: database_url,
                 max_connections,
             },
+            ai: AiConfig {
+                model_payload_encoding,
+            },
             telegram: TelegramConfig {
                 enabled: telegram_enabled,
                 bot_token: telegram_bot_token,
@@ -199,6 +228,16 @@ fn parse_callback_mode(value: &str) -> Result<ConnectorRuntimeMode, AppError> {
         "bridge" => Ok(ConnectorRuntimeMode::Bridge),
         other => Err(AppError::Config(format!(
             "invalid TELEGRAM_CALLBACK_MODE: {other}"
+        ))),
+    }
+}
+
+fn parse_model_payload_encoding(value: &str) -> Result<ModelPayloadEncoding, AppError> {
+    match value.trim() {
+        "json" => Ok(ModelPayloadEncoding::Json),
+        "toon" => Ok(ModelPayloadEncoding::Toon),
+        other => Err(AppError::Config(format!(
+            "invalid AI_MODEL_PAYLOAD_ENCODING: {other}"
         ))),
     }
 }

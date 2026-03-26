@@ -77,6 +77,10 @@ mod tests {
             "postgres://postgres:postgres@localhost:5432/life_os"
         );
         assert_eq!(config.database.max_connections, 7);
+        assert_eq!(
+            config.ai.model_payload_encoding,
+            crate::config::ModelPayloadEncoding::Toon
+        );
     }
 
     #[test]
@@ -87,6 +91,36 @@ mod tests {
         match error {
             AppError::Config(message) => {
                 assert!(message.contains("DATABASE_URL"));
+            }
+            other => panic!("expected config error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn loads_ai_model_payload_encoding_from_env() {
+        let config = Config::from_env_map([
+            ("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/life_os"),
+            ("AI_MODEL_PAYLOAD_ENCODING", "json"),
+        ])
+        .expect("config should load");
+
+        assert_eq!(
+            config.ai.model_payload_encoding,
+            crate::config::ModelPayloadEncoding::Json
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_ai_model_payload_encoding() {
+        let error = Config::from_env_map([
+            ("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/life_os"),
+            ("AI_MODEL_PAYLOAD_ENCODING", "yaml"),
+        ])
+        .expect_err("invalid encoding should fail");
+
+        match error {
+            AppError::Config(message) => {
+                assert!(message.contains("AI_MODEL_PAYLOAD_ENCODING"));
             }
             other => panic!("expected config error, got {other:?}"),
         }

@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde_json::Value;
+use toon_format::{decode_default, encode_default};
 
 use crate::domain::ai::{
     AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
     AiToolInput, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput, AiRunContext,
     AiRunRecord, AiRunResult, ValidationOutcome,
 };
+pub use crate::config::ModelPayloadEncoding;
 use crate::error::AppError;
 
 #[async_trait]
@@ -58,6 +61,62 @@ pub trait AiExecutor: Send + Sync {
 
 pub trait AiExecutionOrchestrator {
     fn runner_name(&self) -> &'static str;
+}
+
+pub fn encode_model_payload(
+    encoding: ModelPayloadEncoding,
+    payload: &str,
+) -> Result<String, AppError> {
+    match encoding {
+        ModelPayloadEncoding::Json => {
+            serde_json::from_str::<Value>(payload)
+                .map_err(|error| AppError::Validation(format!("invalid json payload: {error}")))?;
+            Ok(payload.to_string())
+        }
+        ModelPayloadEncoding::Toon => {
+            let trimmed = payload.trim();
+            if trimmed.is_empty() {
+                return Err(AppError::Validation(
+                    "toon payload cannot be empty".to_string(),
+                ));
+            }
+
+            if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+                encode_default(&value)
+                    .map_err(|error| AppError::Validation(format!("invalid toon payload: {error}")))
+            } else {
+                decode_default::<Value>(trimmed).map_err(|error| {
+                    AppError::Validation(format!("invalid toon payload: {error}"))
+                })?;
+                Ok(trimmed.to_string())
+            }
+        }
+    }
+}
+
+pub fn decode_model_payload(
+    encoding: ModelPayloadEncoding,
+    payload: &str,
+) -> Result<String, AppError> {
+    match encoding {
+        ModelPayloadEncoding::Json => {
+            serde_json::from_str::<Value>(payload)
+                .map_err(|error| AppError::Validation(format!("invalid json payload: {error}")))?;
+            Ok(payload.to_string())
+        }
+        ModelPayloadEncoding::Toon => {
+            let trimmed = payload.trim();
+            if trimmed.is_empty() {
+                return Err(AppError::Validation(
+                    "toon payload cannot be empty".to_string(),
+                ));
+            }
+
+            decode_default::<Value>(trimmed)
+                .map_err(|error| AppError::Validation(format!("invalid toon payload: {error}")))?;
+            Ok(trimmed.to_string())
+        }
+    }
 }
 
 pub struct FakeAiUnderstander {
@@ -288,6 +347,7 @@ mod tests {
         AiToolInput, AiToolKind, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput,
         AiRunContext, AiRunRecord, AiRunResult, ValidationOutcome,
     };
+    use crate::service::ai::{decode_model_payload, encode_model_payload, ModelPayloadEncoding};
     use crate::error::AppError;
     use crate::service::ai::{
         AiDecisionEngine, AiDecisionProvider, AiExecutor, AiRunner, AiUnderstander,
@@ -762,6 +822,69 @@ mod tests {
                 assert!(message.contains("tool failed"));
             }
             other => panic!("expected internal state error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn model_payload_encoding_supports_json_and_toon() {
+        assert_eq!(ModelPayloadEncoding::Json.as_str(), "json");
+        assert_eq!(ModelPayloadEncoding::Toon.as_str(), "toon");
+    }
+
+    #[test]
+    fn encode_model_payload_uses_json_encoding_when_requested() {
+        let encoded = encode_model_payload(
+            ModelPayloadEncoding::Json,
+            r#"{"intent":"record","target_module":"diet"}"#,
+        )
+        .expect("json encoding should succeed");
+
+        assert_eq!(encoded, r#"{"intent":"record","target_module":"diet"}"#);
+    }
+
+    #[test]
+    fn encode_model_payload_marks_toon_payload_without_changing_internal_semantics() {
+        let encoded = encode_model_payload(
+            ModelPayloadEncoding::Toon,
+            "intent: record\ntarget_module: diet",
+        )
+        .expect("toon encoding should succeed");
+
+        assert_eq!(encoded, "intent: record\ntarget_module: diet");
+    }
+
+    #[test]
+    fn decode_model_payload_accepts_json_without_treating_it_as_internal_model_change() {
+        let decoded = decode_model_payload(
+            ModelPayloadEncoding::Json,
+            r#"{"intent":"record","target_module":"diet"}"#,
+        )
+        .expect("json decoding should succeed");
+
+        assert_eq!(decoded, r#"{"intent":"record","target_module":"diet"}"#);
+    }
+
+    #[test]
+    fn decode_model_payload_accepts_toon_before_schema_validation() {
+        let decoded = decode_model_payload(
+            ModelPayloadEncoding::Toon,
+            "intent: record\ntarget_module: diet",
+        )
+        .expect("toon decoding should succeed");
+
+        assert_eq!(decoded, "intent: record\ntarget_module: diet");
+    }
+
+    #[test]
+    fn decode_model_payload_rejects_empty_toon_payload() {
+        let error = decode_model_payload(ModelPayloadEncoding::Toon, "   ")
+            .expect_err("empty toon should fail");
+
+        match error {
+            AppError::Validation(message) => {
+                assert!(message.contains("toon payload cannot be empty"));
+            }
+            other => panic!("expected validation error, got {other:?}"),
         }
     }
 }
