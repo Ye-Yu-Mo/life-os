@@ -24,6 +24,7 @@ describe('RawLogDetail', () => {
       />,
     )
 
+    expect(await screen.findByText(/raw text evidence/i)).toBeInTheDocument()
     expect(await screen.findByText('WeChat Bridge')).toBeInTheDocument()
     expect(screen.getByText('Synced')).toBeInTheDocument()
   })

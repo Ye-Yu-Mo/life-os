@@ -10,11 +10,11 @@ describe('App routing', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.getByRole('heading', { name: /quick input/i })).toBeInTheDocument()
     expect(
-      screen.getByText(/先保留原始表达，再进入结构化链路/i),
+      screen.getByRole('heading', { name: /capture first\. structure later\./i }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /import raw logs/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /quick capture/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /import queue/i })).toBeInTheDocument()
   })
 
   it('redirects unknown routes back to input page', () => {
@@ -24,7 +24,7 @@ describe('App routing', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.getByRole('heading', { name: /quick input/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /quick capture/i })).toBeInTheDocument()
   })
 
   it('renders raw logs page on logs route', () => {
@@ -34,6 +34,6 @@ describe('App routing', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.getByRole('heading', { name: /raw logs/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /raw logs archive/i })).toBeInTheDocument()
   })
 })

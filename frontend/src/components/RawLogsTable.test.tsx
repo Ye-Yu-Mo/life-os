@@ -31,8 +31,9 @@ describe('RawLogsTable', () => {
 
     expect(screen.getByText('Telegram')).toBeInTheDocument()
     expect(screen.getByText('Imported')).toBeInTheDocument()
+    expect(screen.getByText(/fact stream entry/i)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /view detail/i }))
+    await user.click(screen.getByRole('button', { name: /open dossier/i }))
     expect(onViewDetail).toHaveBeenCalledWith('log-1')
   })
 })

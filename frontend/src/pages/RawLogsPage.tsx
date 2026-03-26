@@ -1,4 +1,4 @@
-import { Alert, Button, Empty, Flex, Space, Spin, Typography } from 'antd'
+import { Alert, Button, Empty, Flex, Space, Spin, Tag, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 import {
   fetchRawLogById,
@@ -51,34 +51,41 @@ export default function RawLogsPage() {
   }, [])
 
   return (
-    <Space direction="vertical" size={20} style={{ display: 'flex' }}>
+    <Space direction="vertical" size={24} style={{ display: 'flex' }}>
       <Flex justify="space-between" align="center" gap={16} wrap="wrap">
         <div>
-          <Typography.Title level={2} className="log-input-title">
-            Raw Logs
+          <Typography.Title level={2} className="page-section-title">
+            Raw Logs Archive
           </Typography.Title>
-          <Typography.Paragraph className="log-input-subtitle">
-            这里直接看事实源。先确认数据是否入库，再谈解析和复盘。
+          <Typography.Paragraph className="page-section-subtitle">
+            这里看的是事实流，不是最终事件。先确认记录进来了，再谈解析、聚合和复盘。
           </Typography.Paragraph>
         </div>
 
-        <Button onClick={() => void loadLogs()}>Refresh</Button>
+        <Tag className="page-count-tag">{logs.length} records</Tag>
       </Flex>
 
       {pageError ? (
         <Alert type="error" showIcon message="Load failed" description={pageError} />
       ) : null}
 
+      <div className="toolbar-row">
+        <Button onClick={() => void loadLogs()}>Reload Stream</Button>
+      </div>
+
       {isLoading ? (
-        <div className="raw-logs-loading">
+        <div className="panel-shell raw-logs-loading">
           <Spin size="large" />
         </div>
       ) : logs.length === 0 ? (
-        <section className="log-result-card">
+        <section className="panel-shell">
           <Empty description="No raw logs yet" />
+          <Typography.Paragraph className="empty-state-note">
+            Nothing has entered the fact stream yet.
+          </Typography.Paragraph>
         </section>
       ) : (
-        <section className="log-result-card">
+        <section className="panel-shell">
           <RawLogsTable logs={logs} onViewDetail={handleViewDetail} />
         </section>
       )}

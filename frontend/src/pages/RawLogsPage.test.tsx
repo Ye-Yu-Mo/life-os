@@ -28,6 +28,7 @@ describe('RawLogsPage', () => {
     render(<RawLogsPage />)
 
     expect(await screen.findByText(/no raw logs yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/nothing has entered the fact stream yet/i)).toBeInTheDocument()
   })
 
   it('renders raw logs list and refreshes data', async () => {
@@ -70,7 +71,7 @@ describe('RawLogsPage', () => {
 
     expect(await screen.findByText('今天 9:40 起床')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /refresh/i }))
+    await user.click(screen.getByRole('button', { name: /reload stream/i }))
 
     await waitFor(() => {
       expect(mockedFetchRawLogs).toHaveBeenCalledTimes(2)
@@ -114,13 +115,13 @@ describe('RawLogsPage', () => {
 
     render(<RawLogsPage />)
 
-    await user.click(await screen.findByRole('button', { name: /view detail/i }))
+    await user.click(await screen.findByRole('button', { name: /open dossier/i }))
 
     await waitFor(() => {
       expect(mockedFetchRawLogById).toHaveBeenCalledWith('log-1')
     })
 
-    expect(await screen.findByText(/latest raw log detail/i)).toBeInTheDocument()
+    expect(await screen.findByText(/raw log dossier/i)).toBeInTheDocument()
     expect(screen.getAllByText('今天 9:40 起床').length).toBeGreaterThan(0)
   })
 })

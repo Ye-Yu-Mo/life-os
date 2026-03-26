@@ -30,7 +30,7 @@ describe('LogImportForm', () => {
 
     render(<LogImportForm />)
 
-    const fileInput = screen.getByLabelText(/import file/i)
+    const fileInput = screen.getByLabelText(/choose import file/i)
     const file = new File(
       [
         JSON.stringify({
@@ -50,7 +50,7 @@ describe('LogImportForm', () => {
     )
 
     await user.upload(fileInput, file)
-    await user.click(screen.getByRole('button', { name: /import raw logs/i }))
+    await user.click(screen.getByRole('button', { name: /run import/i }))
 
     await waitFor(() => {
       expect(mockedImportRawLogs).toHaveBeenCalledWith(
@@ -61,7 +61,7 @@ describe('LogImportForm', () => {
       )
     })
 
-    expect(await screen.findByText(/import result/i)).toBeInTheDocument()
+    expect(await screen.findByText(/import report/i)).toBeInTheDocument()
     expect(screen.getByText('Total')).toBeInTheDocument()
     expect(screen.getByText('Success')).toBeInTheDocument()
     expect(screen.getAllByText('2')).toHaveLength(2)
@@ -78,7 +78,7 @@ describe('LogImportForm', () => {
 
     render(<LogImportForm />)
 
-    const fileInput = screen.getByLabelText(/import file/i)
+    const fileInput = screen.getByLabelText(/choose import file/i)
     const file = new File(
       [
         'user_id,raw_text,input_channel,source_type\n550e8400-e29b-41d4-a716-446655440001,今天 9:40 起床,import,imported\n',
@@ -88,7 +88,7 @@ describe('LogImportForm', () => {
     )
 
     await user.upload(fileInput, file)
-    await user.click(screen.getByRole('button', { name: /import raw logs/i }))
+    await user.click(screen.getByRole('button', { name: /run import/i }))
 
     await waitFor(() => {
       expect(mockedImportRawLogs).toHaveBeenCalledWith({
@@ -104,11 +104,11 @@ describe('LogImportForm', () => {
 
     render(<LogImportForm />)
 
-    const fileInput = screen.getByLabelText(/import file/i)
+    const fileInput = screen.getByLabelText(/choose import file/i)
     const file = new File(['plain text'], 'raw-logs.txt', { type: 'text/plain' })
 
     await user.upload(fileInput, file)
-    await user.click(screen.getByRole('button', { name: /import raw logs/i }))
+    await user.click(screen.getByRole('button', { name: /run import/i }))
 
     expect(await screen.findByText(/only json and csv files are supported/i)).toBeInTheDocument()
     expect(mockedImportRawLogs).not.toHaveBeenCalled()
@@ -119,11 +119,11 @@ describe('LogImportForm', () => {
 
     render(<LogImportForm />)
 
-    const fileInput = screen.getByLabelText(/import file/i)
+    const fileInput = screen.getByLabelText(/choose import file/i)
     const file = new File(['{invalid json'], 'raw-logs.json', { type: 'application/json' })
 
     await user.upload(fileInput, file)
-    await user.click(screen.getByRole('button', { name: /import raw logs/i }))
+    await user.click(screen.getByRole('button', { name: /run import/i }))
 
     expect(await screen.findByText(/invalid json import file/i)).toBeInTheDocument()
     expect(mockedImportRawLogs).not.toHaveBeenCalled()
@@ -145,7 +145,7 @@ describe('LogImportForm', () => {
 
     render(<LogImportForm />)
 
-    const fileInput = screen.getByLabelText(/import file/i)
+    const fileInput = screen.getByLabelText(/choose import file/i)
     const file = new File(
       [
         JSON.stringify({
@@ -165,9 +165,9 @@ describe('LogImportForm', () => {
     )
 
     await user.upload(fileInput, file)
-    await user.click(screen.getByRole('button', { name: /import raw logs/i }))
+    await user.click(screen.getByRole('button', { name: /run import/i }))
 
-    expect(await screen.findByText(/import failed/i)).toBeInTheDocument()
+    expect(await screen.findByText(/import blocked/i)).toBeInTheDocument()
     expect(screen.getByText(/record 2: raw_text cannot be empty/i)).toBeInTheDocument()
   })
 })

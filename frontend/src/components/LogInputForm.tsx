@@ -1,4 +1,4 @@
-import { Alert, Button, Form, Input, Space, Typography } from 'antd'
+import { Alert, Button, Form, Input, Typography } from 'antd'
 import { useState } from 'react'
 import { createRawLog, getApiErrorMessage, type RawLog } from '../api/logs'
 
@@ -39,93 +39,92 @@ export default function LogInputForm() {
   }
 
   return (
-    <Space direction="vertical" size={20} className="log-input-stack">
-      <section className="log-input-card">
-        <Typography.Title level={2} className="log-input-title">
-          Quick Input
-        </Typography.Title>
-        <Typography.Paragraph className="log-input-subtitle">
-          先保留原始表达，再进入结构化链路。这个页面只做一件事：低摩擦提交原始日志。
-        </Typography.Paragraph>
+    <section className="feature-card feature-card-accent">
+      <div className="feature-card-header">
+        <div>
+          <Typography.Title level={2} className="feature-card-title">
+            Quick Capture
+          </Typography.Title>
+          <Typography.Paragraph className="feature-card-subtitle">
+            单条输入走最短路径。别在这里做解析，别在这里做总结，先把原文保存下来。
+          </Typography.Paragraph>
+        </div>
+      </div>
 
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{
-            userId: '550e8400-e29b-41d4-a716-446655440001',
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          }}
-          onFinish={handleSubmit}
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          userId: '550e8400-e29b-41d4-a716-446655440001',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }}
+        onFinish={handleSubmit}
+      >
+        <Form.Item
+          label="User ID"
+          name="userId"
+          rules={[
+            { required: true, message: 'User ID is required' },
+            { type: 'string', min: 1, message: 'User ID cannot be empty' },
+          ]}
         >
-          <Form.Item
-            label="User ID"
-            name="userId"
-            rules={[
-              { required: true, message: 'User ID is required' },
-              { type: 'string', min: 1, message: 'User ID cannot be empty' },
-            ]}
-          >
-            <Input placeholder="550e8400-e29b-41d4-a716-446655440001" />
-          </Form.Item>
+          <Input placeholder="550e8400-e29b-41d4-a716-446655440001" />
+        </Form.Item>
 
-          <Form.Item
-            label="Raw Text"
-            name="rawText"
-            rules={[
-              { required: true, message: 'Raw text is required' },
-              { whitespace: true, message: 'Raw text cannot be empty' },
-              { max: 10000, message: 'Raw text is too long' },
-            ]}
-          >
-            <Input.TextArea
-              placeholder="今天 9:40 起床，凌晨 2:10 睡，睡得一般"
-              autoSize={{ minRows: 5, maxRows: 10 }}
-              showCount
-              maxLength={10000}
-            />
-          </Form.Item>
-
-          <div className="log-input-meta-grid">
-            <Form.Item
-              label="Context Date"
-              name="contextDate"
-              rules={[
-                {
-                  pattern: /^\d{4}-\d{2}-\d{2}$/,
-                  message: 'Use YYYY-MM-DD format',
-                },
-              ]}
-            >
-              <Input placeholder="2026-03-26" />
-            </Form.Item>
-
-            <Form.Item label="Timezone" name="timezone">
-              <Input placeholder="Asia/Shanghai" />
-            </Form.Item>
-          </div>
-
-          <Form.Item className="log-input-actions">
-            <Button type="primary" htmlType="submit" loading={isSubmitting} size="large">
-              Submit Raw Log
-            </Button>
-          </Form.Item>
-        </Form>
-
-        {submitError ? (
-          <Alert
-            type="error"
-            showIcon
-            message="Submit failed"
-            description={submitError}
+        <Form.Item
+          label="Raw Text"
+          name="rawText"
+          rules={[
+            { required: true, message: 'Raw text is required' },
+            { whitespace: true, message: 'Raw text cannot be empty' },
+            { max: 10000, message: 'Raw text is too long' },
+          ]}
+        >
+          <Input.TextArea
+            placeholder="今天 9:40 起床，凌晨 2:10 睡，睡得一般..."
+            autoSize={{ minRows: 6, maxRows: 10 }}
+            showCount
+            maxLength={10000}
           />
-        ) : null}
-      </section>
+        </Form.Item>
+
+        <div className="log-input-meta-grid">
+          <Form.Item
+            label="Context Date"
+            name="contextDate"
+            rules={[
+              {
+                pattern: /^\d{4}-\d{2}-\d{2}$/,
+                message: 'Use YYYY-MM-DD format',
+              },
+            ]}
+          >
+            <Input placeholder="2026-03-26" />
+          </Form.Item>
+
+          <Form.Item label="Timezone" name="timezone">
+            <Input placeholder="Asia/Shanghai" />
+          </Form.Item>
+        </div>
+
+        <Form.Item className="log-input-actions">
+          <Button type="primary" htmlType="submit" loading={isSubmitting} size="large" block>
+            Save Raw Log
+          </Button>
+        </Form.Item>
+      </Form>
+
+      {submitError ? (
+        <Alert type="error" showIcon message="Write Rejected" description={submitError} />
+      ) : null}
 
       {createdLog ? (
-        <section className="log-result-card">
-          <Typography.Title level={4}>Latest Created Raw Log</Typography.Title>
+        <section className="result-panel">
+          <Typography.Title level={4} className="result-panel-title">
+            Latest Write Accepted
+          </Typography.Title>
           <dl className="log-result-grid">
-            <dt>ID</dt>
+            <dt>Log ID</dt>
             <dd>{createdLog.id}</dd>
             <dt>Status</dt>
             <dd>{createdLog.parse_status}</dd>
@@ -136,6 +135,6 @@ export default function LogInputForm() {
           </dl>
         </section>
       ) : null}
-    </Space>
+    </section>
   )
 }

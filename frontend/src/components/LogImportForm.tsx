@@ -1,4 +1,4 @@
-import { Alert, Button, Space, Typography } from 'antd'
+import { Alert, Button, Space, Statistic, Typography } from 'antd'
 import { useState } from 'react'
 import {
   getApiErrorMessage,
@@ -37,19 +37,23 @@ export default function LogImportForm() {
   }
 
   return (
-    <Space direction="vertical" size={20} className="log-input-stack">
-      <section className="log-input-card">
-        <Typography.Title level={2} className="log-input-title">
-          Import Raw Logs
-        </Typography.Title>
-        <Typography.Paragraph className="log-input-subtitle">
-          批量导入只做一件事：把外部文件稳定写进事实源，不顺手发明别的流程。
-        </Typography.Paragraph>
+    <section className="feature-card">
+      <div className="feature-card-header">
+        <div>
+          <Typography.Title level={2} className="feature-card-title">
+            Import Queue
+          </Typography.Title>
+          <Typography.Paragraph className="feature-card-subtitle">
+            批量导入不是另一套系统。它只是把外部文件稳定压进同一条事实流。
+          </Typography.Paragraph>
+        </div>
+      </div>
 
-        <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-          <label htmlFor={FILE_INPUT_ID} className="log-import-label">
-            Import File
-          </label>
+      <Space direction="vertical" size={16} style={{ display: 'flex' }}>
+        <label htmlFor={FILE_INPUT_ID} className="log-import-label">
+          Choose Import File
+        </label>
+        <div className="import-dropzone">
           <input
             id={FILE_INPUT_ID}
             className="log-import-file-input"
@@ -61,36 +65,46 @@ export default function LogImportForm() {
               setSelectedFile(event.target.files?.[0] ?? null)
             }}
           />
+          <Typography.Text className="import-dropzone-title">
+            {selectedFile ? selectedFile.name : 'Select JSON or CSV fact batches'}
+          </Typography.Text>
           <Typography.Text type="secondary">
             Supports `.json` import payloads and raw `.csv` files.
           </Typography.Text>
+        </div>
 
-          <Button type="primary" onClick={() => void handleSubmit()} loading={isSubmitting}>
-            Import Raw Logs
-          </Button>
-        </Space>
+        <Button type="primary" onClick={() => void handleSubmit()} loading={isSubmitting} block>
+          Run Import
+        </Button>
+      </Space>
 
-        {submitError ? (
-          <Alert type="error" showIcon message="Import failed" description={submitError} />
-        ) : null}
-      </section>
+      {submitError ? (
+        <Alert type="error" showIcon message="Import Blocked" description={submitError} />
+      ) : null}
 
       {importResult ? (
-        <section className="log-result-card">
-          <Typography.Title level={4}>Import Result</Typography.Title>
-          <dl className="log-result-grid">
-            <dt>Total</dt>
-            <dd>{importResult.total_count}</dd>
-            <dt>Success</dt>
-            <dd>{importResult.success_count}</dd>
-            <dt>Failure</dt>
-            <dd>{importResult.failure_count}</dd>
+        <section className="result-panel">
+          <Typography.Title level={4} className="result-panel-title">
+            Import Report
+          </Typography.Title>
+          <div className="import-stats-grid">
+            <div className="import-stat-card">
+              <Statistic title="Total" value={importResult.total_count} />
+            </div>
+            <div className="import-stat-card import-stat-card-success">
+              <Statistic title="Success" value={importResult.success_count} />
+            </div>
+            <div className="import-stat-card import-stat-card-danger">
+              <Statistic title="Failure" value={importResult.failure_count} />
+            </div>
+          </div>
+          <dl className="log-result-grid import-errors-grid">
             <dt>Errors</dt>
             <dd>{importResult.errors.length === 0 ? 'None' : importResult.errors.join('; ')}</dd>
           </dl>
         </section>
       ) : null}
-    </Space>
+    </section>
   )
 }
 

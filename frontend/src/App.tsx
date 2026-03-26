@@ -1,4 +1,4 @@
-import { Layout, Menu, Typography, type MenuProps } from 'antd'
+import { ConfigProvider, Layout, Menu, Typography, type MenuProps } from 'antd'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import './App.css'
 import InputPage from './pages/InputPage'
@@ -14,38 +14,56 @@ function App() {
   }
 
   return (
-    <Layout className="app-shell">
-      <Layout.Header className="app-header">
-        <div className="app-brand">
-          <Typography.Title level={4} className="app-brand-title">
-            Life OS
-          </Typography.Title>
-          <Typography.Text className="app-brand-text">
-            0.1.0 Input And Raw Logs
-          </Typography.Text>
-        </div>
+    <ConfigProvider
+      theme={{
+        token: {
+          colorPrimary: '#1e5eff',
+          borderRadius: 16,
+          colorTextBase: '#16324f',
+          colorTextHeading: '#10233a',
+          colorBgContainer: '#ffffff',
+          fontFamily:
+            '"IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
+        },
+      }}
+    >
+      <Layout className="app-shell">
+        <Layout.Header className="app-header">
+          <div className="app-brand">
+            <div className="app-brand-mark" aria-hidden="true">
+              LO
+            </div>
+            <div className="app-brand-copy">
+              <Typography.Title level={4} className="app-brand-title">
+                Life OS
+              </Typography.Title>
+              <Typography.Text className="app-brand-text">
+                Capture First. Structure Later.
+              </Typography.Text>
+            </div>
+          </div>
 
-        <Menu
-          theme="dark"
-          mode="horizontal"
-          selectedKeys={[location.pathname]}
-          items={[
-            { key: '/', label: 'Quick Input' },
-            { key: '/logs', label: 'Raw Logs' },
-          ]}
-          onClick={handleMenuClick}
-          className="app-menu"
-        />
-      </Layout.Header>
+          <Menu
+            mode="horizontal"
+            selectedKeys={[location.pathname]}
+            items={[
+              { key: '/', label: 'Quick Capture' },
+              { key: '/logs', label: 'Raw Logs Archive' },
+            ]}
+            onClick={handleMenuClick}
+            className="app-menu"
+          />
+        </Layout.Header>
 
-      <Layout.Content className="app-content">
-        <Routes>
-          <Route path="/" element={<InputPage />} />
-          <Route path="/logs" element={<RawLogsPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Layout.Content>
-    </Layout>
+        <Layout.Content className="app-content">
+          <Routes>
+            <Route path="/" element={<InputPage />} />
+            <Route path="/logs" element={<RawLogsPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Layout.Content>
+      </Layout>
+    </ConfigProvider>
   )
 }
 

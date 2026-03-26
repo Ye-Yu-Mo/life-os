@@ -16,6 +16,7 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: light;
 }
 
 * {
@@ -31,4 +32,5 @@ body,
 
 body {
   margin: 0;
+  color: #10233a;
 }

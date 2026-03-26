@@ -24,7 +24,7 @@ describe('LogInputForm', () => {
 
     render(<LogInputForm />)
 
-    await user.click(screen.getByRole('button', { name: /submit raw log/i }))
+    await user.click(screen.getByRole('button', { name: /save raw log/i }))
 
     expect(await screen.findByText(/raw text is required/i)).toBeInTheDocument()
     expect(mockedCreateRawLog).not.toHaveBeenCalled()
@@ -50,11 +50,11 @@ describe('LogInputForm', () => {
     render(<LogInputForm />)
 
     await user.type(
-      screen.getByPlaceholderText('今天 9:40 起床，凌晨 2:10 睡，睡得一般'),
+      screen.getByPlaceholderText(/今天 9:40 起床，凌晨 2:10 睡，睡得一般\.\.\./i),
       '今天 9:40 起床',
     )
     await user.type(screen.getByPlaceholderText('2026-03-26'), '2026-03-26')
-    await user.click(screen.getByRole('button', { name: /submit raw log/i }))
+    await user.click(screen.getByRole('button', { name: /save raw log/i }))
 
     await waitFor(() => {
       expect(mockedCreateRawLog).toHaveBeenCalledWith(
@@ -66,8 +66,8 @@ describe('LogInputForm', () => {
       )
     })
 
-    expect(await screen.findByText(/latest created raw log/i)).toBeInTheDocument()
-    expect(screen.getByText('550e8400-e29b-41d4-a716-446655440000')).toBeInTheDocument()
+    expect(await screen.findByText(/latest write accepted/i)).toBeInTheDocument()
+    expect(screen.getByText(/550e8400-e29b/i)).toBeInTheDocument()
   })
 
   it('shows backend error message when submit fails', async () => {
@@ -87,12 +87,12 @@ describe('LogInputForm', () => {
     render(<LogInputForm />)
 
     await user.type(
-      screen.getByPlaceholderText('今天 9:40 起床，凌晨 2:10 睡，睡得一般'),
+      screen.getByPlaceholderText(/今天 9:40 起床，凌晨 2:10 睡，睡得一般\.\.\./i),
       '今天 9:40 起床',
     )
-    await user.click(screen.getByRole('button', { name: /submit raw log/i }))
+    await user.click(screen.getByRole('button', { name: /save raw log/i }))
 
-    expect(await screen.findByText(/submit failed/i)).toBeInTheDocument()
+    expect(await screen.findByText(/write rejected/i)).toBeInTheDocument()
     expect(screen.getByText(/raw_text cannot be empty/i)).toBeInTheDocument()
   })
 })
