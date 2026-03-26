@@ -175,6 +175,21 @@
   padding: 24px;
 }
 
+.ai-console-card {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.ai-result-panel {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.ai-result-copy.ant-typography {
+  margin: 6px 0 0;
+  color: #1d3857;
+}
+
 .log-input-meta-grid {
   display: grid;
   gap: 16px;

@@ -1,6 +1,7 @@
 import { ConfigProvider, Layout, Menu, Typography, type MenuProps } from 'antd'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import './App.css'
+import AiConsolePage from './pages/AiConsolePage'
 import InputPage from './pages/InputPage'
 import RawLogsPage from './pages/RawLogsPage'
 
@@ -48,6 +49,7 @@ function App() {
             selectedKeys={[location.pathname]}
             items={[
               { key: '/', label: 'Quick Capture' },
+              { key: '/ai', label: 'AI Console' },
               { key: '/logs', label: 'Raw Logs Archive' },
             ]}
             onClick={handleMenuClick}
@@ -58,6 +60,7 @@ function App() {
         <Layout.Content className="app-content">
           <Routes>
             <Route path="/" element={<InputPage />} />
+            <Route path="/ai" element={<AiConsolePage />} />
             <Route path="/logs" element={<RawLogsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -36,4 +36,15 @@ describe('App routing', () => {
 
     expect(screen.getByRole('heading', { name: /raw logs archive/i })).toBeInTheDocument()
   })
+
+  it('renders ai page on ai route', () => {
+    render(
+      <MemoryRouter initialEntries={['/ai']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('heading', { name: /ai console/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /run ai/i })).toBeInTheDocument()
+  })
 })
