@@ -50,6 +50,12 @@ pub struct AiUnderstandingOutput {
     pub clarification_question: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiDecisionInput {
+    pub understanding: AiUnderstandingOutput,
+    pub state_summary: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiExecutionStatus {
     Completed,
@@ -98,7 +104,7 @@ pub struct AiRunResult {
 #[cfg(test)]
 mod tests {
     use crate::domain::ai::{
-        AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
+        AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
         AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
     };
 
@@ -210,5 +216,37 @@ mod tests {
         assert_eq!(input.raw_log_id, "log-1");
         assert_eq!(input.channel, "telegram");
         assert_eq!(input.context_date.as_deref(), Some("2026-03-26"));
+    }
+
+    #[test]
+    fn decision_input_is_derived_from_understanding_output_and_state_summary() {
+        let input = AiDecisionInput {
+            understanding: AiUnderstandingOutput {
+                intent: AiIntent::Query,
+                target_module: "ledger".to_string(),
+                references: vec!["this_month".to_string()],
+                extracted_entities: vec!["metric:expense_total".to_string()],
+                confidence: 93,
+                needs_clarification: false,
+                clarification_question: None,
+            },
+            state_summary: "current month expenses exist".to_string(),
+        };
+
+        assert_eq!(input.understanding.intent, AiIntent::Query);
+        assert_eq!(input.state_summary, "current month expenses exist");
+    }
+
+    #[test]
+    fn decision_output_is_structured_action_plan_instead_of_free_text() {
+        let decision = AiDecisionOutput {
+            decision_type: "query_only".to_string(),
+            module: "ledger".to_string(),
+            action_count: 1,
+        };
+
+        assert_eq!(decision.decision_type, "query_only");
+        assert_eq!(decision.module, "ledger");
+        assert_eq!(decision.action_count, 1);
     }
 }

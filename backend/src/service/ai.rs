@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::domain::ai::{
-    AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
+    AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
     AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
     ValidationOutcome,
 };
@@ -15,6 +15,11 @@ pub trait AiUnderstandingProvider: Send + Sync {
         &self,
         input: AiUnderstandingInput,
     ) -> Result<AiUnderstandingOutput, AppError>;
+}
+
+#[async_trait]
+pub trait AiDecisionProvider: Send + Sync {
+    async fn decide_input(&self, input: AiDecisionInput) -> Result<AiDecisionOutput, AppError>;
 }
 
 #[async_trait]
@@ -72,6 +77,28 @@ impl FakeAiUnderstander {
     }
 }
 
+pub struct FakeAiDecisionEngine {
+    response: StoredResult<AiDecisionOutput>,
+}
+
+enum StoredResult<T> {
+    Ready(Result<T, AppError>),
+}
+
+impl FakeAiDecisionEngine {
+    pub fn with_response(response: AiDecisionOutput) -> Self {
+        Self {
+            response: StoredResult::Ready(Ok(response)),
+        }
+    }
+
+    pub fn with_error(error: AppError) -> Self {
+        Self {
+            response: StoredResult::Ready(Err(error)),
+        }
+    }
+}
+
 #[async_trait]
 impl AiUnderstandingProvider for FakeAiUnderstander {
     async fn understand_input(
@@ -97,6 +124,34 @@ impl AiUnderstandingProvider for FakeAiUnderstander {
                 Err(AppError::InternalState("database error not supported in fake".to_string()))
             }
             MutexLike::Ready(Err(AppError::Migration(_))) => {
+                Err(AppError::InternalState("migration error not supported in fake".to_string()))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl AiDecisionProvider for FakeAiDecisionEngine {
+    async fn decide_input(&self, _input: AiDecisionInput) -> Result<AiDecisionOutput, AppError> {
+        match &self.response {
+            StoredResult::Ready(Ok(output)) => Ok(output.clone()),
+            StoredResult::Ready(Err(AppError::Config(message))) => {
+                Err(AppError::Config(message.clone()))
+            }
+            StoredResult::Ready(Err(AppError::Validation(message))) => {
+                Err(AppError::Validation(message.clone()))
+            }
+            StoredResult::Ready(Err(AppError::NotFound(message))) => {
+                Err(AppError::NotFound(message.clone()))
+            }
+            StoredResult::Ready(Err(AppError::InternalState(message))) => {
+                Err(AppError::InternalState(message.clone()))
+            }
+            StoredResult::Ready(Err(AppError::Internal)) => Err(AppError::Internal),
+            StoredResult::Ready(Err(AppError::Database(_))) => {
+                Err(AppError::InternalState("database error not supported in fake".to_string()))
+            }
+            StoredResult::Ready(Err(AppError::Migration(_))) => {
                 Err(AppError::InternalState("migration error not supported in fake".to_string()))
             }
         }
@@ -178,14 +233,14 @@ mod tests {
     use async_trait::async_trait;
 
     use crate::domain::ai::{
-        AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
+        AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
         AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
         ValidationOutcome,
     };
     use crate::error::AppError;
     use crate::service::ai::{
-        AiDecisionEngine, AiExecutor, AiRunner, AiUnderstander, AiUnderstandingProvider,
-        AiValidator, FakeAiUnderstander,
+        AiDecisionEngine, AiDecisionProvider, AiExecutor, AiRunner, AiUnderstander,
+        AiUnderstandingProvider, AiValidator, FakeAiDecisionEngine, FakeAiUnderstander,
     };
 
     #[derive(Default)]
@@ -505,6 +560,91 @@ mod tests {
         match error {
             AppError::InternalState(message) => {
                 assert!(message.contains("provider unavailable"));
+            }
+            other => panic!("expected internal state error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn fake_decision_engine_returns_structured_query_plan() {
+        let engine = FakeAiDecisionEngine::with_response(AiDecisionOutput {
+            decision_type: "query_only".to_string(),
+            module: "ledger".to_string(),
+            action_count: 1,
+        });
+
+        let result = engine
+            .decide_input(AiDecisionInput {
+                understanding: AiUnderstandingOutput {
+                    intent: AiIntent::Query,
+                    target_module: "ledger".to_string(),
+                    references: vec!["this_month".to_string()],
+                    extracted_entities: vec!["metric:expense_total".to_string()],
+                    confidence: 92,
+                    needs_clarification: false,
+                    clarification_question: None,
+                },
+                state_summary: "ledger data available".to_string(),
+            })
+            .await
+            .expect("decision should succeed");
+
+        assert_eq!(result.decision_type, "query_only");
+        assert_eq!(result.module, "ledger");
+    }
+
+    #[tokio::test]
+    async fn fake_decision_engine_supports_mutation_plan_without_reusing_raw_message() {
+        let engine = FakeAiDecisionEngine::with_response(AiDecisionOutput {
+            decision_type: "apply_mutation".to_string(),
+            module: "diet".to_string(),
+            action_count: 2,
+        });
+
+        let result = engine
+            .decide_input(AiDecisionInput {
+                understanding: AiUnderstandingOutput {
+                    intent: AiIntent::Update,
+                    target_module: "diet".to_string(),
+                    references: vec!["last_meal".to_string()],
+                    extracted_entities: vec!["meal_type:lunch".to_string()],
+                    confidence: 81,
+                    needs_clarification: false,
+                    clarification_question: None,
+                },
+                state_summary: "one recent meal record found".to_string(),
+            })
+            .await
+            .expect("decision should succeed");
+
+        assert_eq!(result.decision_type, "apply_mutation");
+        assert_eq!(result.action_count, 2);
+    }
+
+    #[tokio::test]
+    async fn fake_decision_engine_surfaces_provider_failure() {
+        let engine =
+            FakeAiDecisionEngine::with_error(AppError::InternalState("decision failed".to_string()));
+
+        let error = engine
+            .decide_input(AiDecisionInput {
+                understanding: AiUnderstandingOutput {
+                    intent: AiIntent::Suggest,
+                    target_module: "inventory".to_string(),
+                    references: vec![],
+                    extracted_entities: vec!["goal:dinner".to_string()],
+                    confidence: 78,
+                    needs_clarification: false,
+                    clarification_question: None,
+                },
+                state_summary: "inventory has eggs and tomatoes".to_string(),
+            })
+            .await
+            .expect_err("decision should fail");
+
+        match error {
+            AppError::InternalState(message) => {
+                assert!(message.contains("decision failed"));
             }
             other => panic!("expected internal state error, got {other:?}"),
         }
