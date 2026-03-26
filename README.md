@@ -6,8 +6,10 @@
 
 * Web 输入自然语言
 * CLI 输入自然语言
+* Web 上传 JSON / CSV 批量导入 raw logs
 * 后端保存 `raw_logs`
 * 查看 Raw Logs 列表和详情
+* 展示输入渠道与来源类型
 
 当前已预留：
 
