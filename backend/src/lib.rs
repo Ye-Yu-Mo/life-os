@@ -7,8 +7,8 @@ pub mod repository;
 pub mod service;
 pub mod validation;
 
-use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 
 pub async fn create_db_pool(config: &config::Config) -> Result<PgPool, error::AppError> {
     let pool = PgPoolOptions::new()
@@ -33,8 +33,8 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
 
-    use crate::domain::raw_logs::{CreateRawLog, RawLog};
     use crate::config::Config;
+    use crate::domain::raw_logs::{CreateRawLog, RawLog};
     use crate::error::AppError;
     use crate::repository::raw_logs::RawLogRepository;
     use crate::service::raw_logs::RawLogService;
@@ -65,7 +65,10 @@ mod tests {
         let config = Config::from_env_map([
             ("APP_HOST", "127.0.0.1"),
             ("APP_PORT", "4100"),
-            ("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/life_os"),
+            (
+                "DATABASE_URL",
+                "postgres://postgres:postgres@localhost:5432/life_os",
+            ),
             ("DATABASE_MAX_CONNECTIONS", "7"),
         ])
         .expect("config should load");
@@ -99,7 +102,10 @@ mod tests {
     #[test]
     fn loads_ai_model_payload_encoding_from_env() {
         let config = Config::from_env_map([
-            ("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/life_os"),
+            (
+                "DATABASE_URL",
+                "postgres://postgres:postgres@localhost:5432/life_os",
+            ),
             ("AI_MODEL_PAYLOAD_ENCODING", "json"),
         ])
         .expect("config should load");
@@ -113,7 +119,10 @@ mod tests {
     #[test]
     fn rejects_invalid_ai_model_payload_encoding() {
         let error = Config::from_env_map([
-            ("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/life_os"),
+            (
+                "DATABASE_URL",
+                "postgres://postgres:postgres@localhost:5432/life_os",
+            ),
             ("AI_MODEL_PAYLOAD_ENCODING", "yaml"),
         ])
         .expect_err("invalid encoding should fail");
@@ -131,7 +140,10 @@ mod tests {
         let config = Config::from_env_map([
             ("APP_HOST", "127.0.0.1"),
             ("APP_PORT", "4100"),
-            ("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/life_os"),
+            (
+                "DATABASE_URL",
+                "postgres://postgres:postgres@localhost:5432/life_os",
+            ),
             ("DATABASE_MAX_CONNECTIONS", "7"),
             ("TELEGRAM_ENABLED", "true"),
             ("TELEGRAM_BOT_TOKEN", "test-bot-token"),
@@ -159,7 +171,10 @@ mod tests {
         let config = Config::from_env_map([
             ("APP_HOST", "127.0.0.1"),
             ("APP_PORT", "4100"),
-            ("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/life_os"),
+            (
+                "DATABASE_URL",
+                "postgres://postgres:postgres@localhost:5432/life_os",
+            ),
             ("DATABASE_MAX_CONNECTIONS", "7"),
             ("FEISHU_ENABLED", "false"),
             ("FEISHU_APP_ID", "cli_aabbcc"),
@@ -191,8 +206,8 @@ mod tests {
 
     #[test]
     fn backend_env_example_contains_telegram_connector_variables() {
-        let env_example = std::fs::read_to_string(".env.example")
-            .expect(".env.example should exist");
+        let env_example =
+            std::fs::read_to_string(".env.example").expect(".env.example should exist");
 
         for expected_key in [
             "TELEGRAM_ENABLED",
@@ -210,8 +225,8 @@ mod tests {
 
     #[test]
     fn backend_env_example_contains_reserved_feishu_and_wechat_bridge_variables() {
-        let env_example = std::fs::read_to_string(".env.example")
-            .expect(".env.example should exist");
+        let env_example =
+            std::fs::read_to_string(".env.example").expect(".env.example should exist");
 
         for expected_key in [
             "FEISHU_ENABLED",
@@ -231,8 +246,7 @@ mod tests {
 
     #[test]
     fn readme_mentions_telegram_connector_setup() {
-        let readme =
-            std::fs::read_to_string("../README.md").expect("README should exist");
+        let readme = std::fs::read_to_string("../README.md").expect("README should exist");
 
         assert!(
             readme.contains("Telegram"),
@@ -246,10 +260,12 @@ mod tests {
 
     #[test]
     fn readme_mentions_reserved_feishu_and_wechat_bridge_connectors() {
-        let readme =
-            std::fs::read_to_string("../README.md").expect("README should exist");
+        let readme = std::fs::read_to_string("../README.md").expect("README should exist");
 
-        assert!(readme.contains("Feishu"), "README should mention Feishu connector");
+        assert!(
+            readme.contains("Feishu"),
+            "README should mention Feishu connector"
+        );
         assert!(
             readme.contains("WeChat Bridge"),
             "README should mention WeChat Bridge reservation"
@@ -266,9 +282,8 @@ mod tests {
 
     #[tokio::test]
     async fn health_route_returns_ok() {
-        let app = crate::http::build_router(Arc::new(RawLogService::new(Arc::new(
-            FakeRawLogRepository,
-        ))));
+        let app =
+            crate::http::build_router(Arc::new(RawLogService::new(Arc::new(FakeRawLogRepository))));
 
         let response = app
             .oneshot(
@@ -294,5 +309,34 @@ mod tests {
             response.headers().get(axum::http::header::CONTENT_TYPE),
             Some(&axum::http::HeaderValue::from_static("application/json"))
         );
+    }
+
+    #[test]
+    fn ai_run_migration_contains_required_tables_and_columns() {
+        let migration =
+            std::fs::read_to_string("migrations/202603260002_create_ai_runs_and_action_plans.sql")
+                .expect("ai run migration should exist");
+
+        for expected_fragment in [
+            "CREATE TABLE ai_runs",
+            "raw_log_id UUID NOT NULL",
+            "user_id UUID NOT NULL",
+            "status TEXT NOT NULL",
+            "attempts INTEGER NOT NULL",
+            "stage_trace JSONB NOT NULL",
+            "error_message TEXT",
+            "CREATE TABLE ai_action_plans",
+            "ai_run_id UUID NOT NULL",
+            "plan_kind TEXT NOT NULL",
+            "module TEXT NOT NULL",
+            "action_count INTEGER NOT NULL",
+            "summary TEXT NOT NULL",
+            "snapshot JSONB NOT NULL",
+        ] {
+            assert!(
+                migration.contains(expected_fragment),
+                "ai run migration should contain {expected_fragment}"
+            );
+        }
     }
 }

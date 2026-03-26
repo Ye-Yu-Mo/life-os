@@ -1,6 +1,6 @@
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
@@ -57,11 +57,9 @@ impl IntoResponse for AppError {
             Self::Validation(message) => (StatusCode::BAD_REQUEST, "validation_error", message),
             Self::AiDecode { message, .. } => (StatusCode::BAD_REQUEST, "ai_decode_error", message),
             Self::AiSchema { message, .. } => (StatusCode::BAD_REQUEST, "ai_schema_error", message),
-            Self::AiRetryExhausted { message, .. } => (
-                StatusCode::BAD_REQUEST,
-                "ai_retry_exhausted",
-                message,
-            ),
+            Self::AiRetryExhausted { message, .. } => {
+                (StatusCode::BAD_REQUEST, "ai_retry_exhausted", message)
+            }
             Self::NotFound(message) => (StatusCode::NOT_FOUND, "not_found", message),
             Self::InternalState(message) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -85,6 +83,12 @@ impl IntoResponse for AppError {
             ),
         };
 
-        (status, Json(ErrorBody { error: ErrorMessage { code, message } })).into_response()
+        (
+            status,
+            Json(ErrorBody {
+                error: ErrorMessage { code, message },
+            }),
+        )
+            .into_response()
     }
 }

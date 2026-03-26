@@ -2,15 +2,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use serde_json::json;
 use toon_format::{decode_default, encode_default};
 
+pub use crate::config::ModelPayloadEncoding;
 use crate::domain::ai::{
     AiActionPlan, AiActionPlanKind, AiDecisionInput, AiDecisionOutput, AiExecutionOutcome,
-    AiExecutionStatus, AiIntent, AiToolInput, AiToolOutput, AiUnderstandingInput,
-    AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult, ValidationOutcome,
+    AiExecutionStatus, AiIntent, AiRunContext, AiRunRecord, AiRunResult, AiToolInput, AiToolOutput,
+    AiUnderstandingInput, AiUnderstandingOutput, ValidationOutcome,
 };
-pub use crate::config::ModelPayloadEncoding;
 use crate::error::AppError;
+use crate::repository::ai_runs::{AiRunRepository, CreateAiActionPlanRecord, CreateAiRunRecord};
 
 #[async_trait]
 pub trait AiUnderstandingProvider: Send + Sync {
@@ -146,9 +148,7 @@ pub fn decode_model_payload(
     }
 }
 
-pub fn validate_understanding_output(
-    output: &AiUnderstandingOutput,
-) -> Result<(), AppError> {
+pub fn validate_understanding_output(output: &AiUnderstandingOutput) -> Result<(), AppError> {
     if output.target_module.trim().is_empty() {
         return Err(AppError::AiSchema {
             stage: "understanding",
@@ -449,6 +449,7 @@ pub struct AiRunner {
     decision_engine: Arc<dyn AiDecisionEngine>,
     validator: Arc<dyn AiValidator>,
     executor: Arc<dyn AiExecutor>,
+    repository: Arc<dyn AiRunRepository>,
 }
 
 impl AiRunner {
@@ -457,12 +458,14 @@ impl AiRunner {
         decision_engine: Arc<dyn AiDecisionEngine>,
         validator: Arc<dyn AiValidator>,
         executor: Arc<dyn AiExecutor>,
+        repository: Arc<dyn AiRunRepository>,
     ) -> Self {
         Self {
             understander,
             decision_engine,
             validator,
             executor,
+            repository,
         }
     }
 
@@ -470,45 +473,183 @@ impl AiRunner {
         let mut stage_trace = Vec::with_capacity(4);
 
         stage_trace.push("understand".to_string());
-        let intent = self.understander.understand(&context).await?;
+        let intent = match self.understander.understand(&context).await {
+            Ok(intent) => intent,
+            Err(error) => {
+                self.persist_run_snapshot(
+                    &context,
+                    AiExecutionStatus::Failed,
+                    &stage_trace,
+                    None,
+                    Some(error.to_string()),
+                )
+                .await?;
+                return Err(error);
+            }
+        };
 
         stage_trace.push("decide".to_string());
-        let decision = self.decision_engine.decide(intent, &context).await?;
+        let decision = match self.decision_engine.decide(intent, &context).await {
+            Ok(decision) => decision,
+            Err(error) => {
+                self.persist_run_snapshot(
+                    &context,
+                    AiExecutionStatus::Failed,
+                    &stage_trace,
+                    None,
+                    Some(error.to_string()),
+                )
+                .await?;
+                return Err(error);
+            }
+        };
 
         stage_trace.push("validate".to_string());
-        match self.validator.validate(&decision).await? {
+        let validation = match self.validator.validate(&decision).await {
+            Ok(validation) => validation,
+            Err(error) => {
+                self.persist_run_snapshot(
+                    &context,
+                    AiExecutionStatus::Failed,
+                    &stage_trace,
+                    Some(&decision),
+                    Some(error.to_string()),
+                )
+                .await?;
+                return Err(error);
+            }
+        };
+
+        match validation {
             ValidationOutcome::Accepted => {
                 stage_trace.push("execute".to_string());
-                let outcome = self.executor.execute(intent, decision, &context).await?;
+                let outcome = match self
+                    .executor
+                    .execute(intent, decision.clone(), &context)
+                    .await
+                {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        self.persist_run_snapshot(
+                            &context,
+                            AiExecutionStatus::Failed,
+                            &stage_trace,
+                            Some(&decision),
+                            Some(error.to_string()),
+                        )
+                        .await?;
+                        return Err(error);
+                    }
+                };
+
+                let run_id = self
+                    .persist_run_snapshot(
+                        &context,
+                        AiExecutionStatus::Completed,
+                        &stage_trace,
+                        Some(&decision),
+                        None,
+                    )
+                    .await?;
 
                 Ok(AiRunResult {
                     record: AiRunRecord {
-                        run_id: format!("run:{}", context.raw_log_id),
+                        run_id,
                         raw_log_id: context.raw_log_id,
                         status: AiExecutionStatus::Completed,
                         attempts: 1,
                         stage_trace,
+                        error_message: None,
                     },
                     outcome,
                 })
             }
-            ValidationOutcome::Rejected { reason } => Ok(AiRunResult {
-                record: AiRunRecord {
-                    run_id: format!("run:{}", context.raw_log_id),
-                    raw_log_id: context.raw_log_id,
-                    status: AiExecutionStatus::Rejected,
-                    attempts: 1,
-                    stage_trace,
-                },
-                outcome: AiExecutionOutcome::Rejected { reason },
-            }),
+            ValidationOutcome::Rejected { reason } => {
+                let run_id = self
+                    .persist_run_snapshot(
+                        &context,
+                        AiExecutionStatus::Rejected,
+                        &stage_trace,
+                        Some(&decision),
+                        Some(reason.clone()),
+                    )
+                    .await?;
+
+                Ok(AiRunResult {
+                    record: AiRunRecord {
+                        run_id,
+                        raw_log_id: context.raw_log_id,
+                        status: AiExecutionStatus::Rejected,
+                        attempts: 1,
+                        stage_trace,
+                        error_message: Some(reason.clone()),
+                    },
+                    outcome: AiExecutionOutcome::Rejected { reason },
+                })
+            }
         }
+    }
+
+    async fn persist_run_snapshot(
+        &self,
+        context: &AiRunContext,
+        status: AiExecutionStatus,
+        stage_trace: &[String],
+        decision: Option<&AiDecisionOutput>,
+        error_message: Option<String>,
+    ) -> Result<String, AppError> {
+        self.repository
+            .record_run(
+                CreateAiRunRecord {
+                    raw_log_id: context.raw_log_id.clone(),
+                    user_id: context.user_id.clone(),
+                    status: format_execution_status(status).to_string(),
+                    attempts: 1,
+                    stage_trace: json!(stage_trace),
+                    error_message,
+                },
+                decision.map(build_action_plan_snapshot),
+            )
+            .await
     }
 }
 
 impl AiExecutionOrchestrator for AiRunner {
     fn runner_name(&self) -> &'static str {
         "ai_runner"
+    }
+}
+
+fn build_action_plan_snapshot(decision: &AiDecisionOutput) -> CreateAiActionPlanRecord {
+    CreateAiActionPlanRecord {
+        plan_kind: decision.decision_type.clone(),
+        module: decision.module.clone(),
+        action_count: decision.action_count as i32,
+        summary: decision.action_plan.summary.clone(),
+        snapshot: json!({
+            "kind": format_action_plan_kind(decision.action_plan.kind),
+            "module": decision.action_plan.module,
+            "action_count": decision.action_plan.action_count,
+            "summary": decision.action_plan.summary,
+            "decision_type": decision.decision_type,
+        }),
+    }
+}
+
+fn format_execution_status(status: AiExecutionStatus) -> &'static str {
+    match status {
+        AiExecutionStatus::Completed => "completed",
+        AiExecutionStatus::Rejected => "rejected",
+        AiExecutionStatus::Failed => "failed",
+    }
+}
+
+fn format_action_plan_kind(kind: AiActionPlanKind) -> &'static str {
+    match kind {
+        AiActionPlanKind::ApplyMutation => "apply_mutation",
+        AiActionPlanKind::QueryOnly => "query_only",
+        AiActionPlanKind::SuggestOnly => "suggest_only",
+        AiActionPlanKind::Clarify => "clarify",
     }
 }
 
@@ -520,20 +661,22 @@ mod tests {
 
     use crate::domain::ai::{
         AiActionPlan, AiActionPlanKind, AiDecisionInput, AiDecisionOutput, AiExecutionOutcome,
-        AiExecutionStatus, AiIntent, AiToolInput, AiToolKind, AiToolOutput,
-        AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
-        ValidationOutcome,
-    };
-    use crate::service::ai::{
-        decode_model_payload, encode_model_payload, retry_decision_validation,
-        retry_understanding_validation, validate_decision_output, validate_tool_output,
-        validate_understanding_output, ModelPayloadEncoding,
+        AiExecutionStatus, AiIntent, AiRunContext, AiRunRecord, AiRunResult, AiToolInput,
+        AiToolKind, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput, ValidationOutcome,
     };
     use crate::error::AppError;
+    use crate::repository::ai_runs::{
+        AiRunRepository, CreateAiActionPlanRecord, CreateAiRunRecord,
+    };
     use crate::service::ai::{
         AiDecisionEngine, AiDecisionProvider, AiExecutionDispatcher, AiExecutor, AiRunner,
-        AiUnderstander, AiToolProvider, AiUnderstandingProvider, AiValidator,
-        FakeAiDecisionEngine, FakeAiExecutor, FakeAiToolProvider, FakeAiUnderstander,
+        AiToolProvider, AiUnderstander, AiUnderstandingProvider, AiValidator, FakeAiDecisionEngine,
+        FakeAiExecutor, FakeAiToolProvider, FakeAiUnderstander,
+    };
+    use crate::service::ai::{
+        ModelPayloadEncoding, decode_model_payload, encode_model_payload,
+        retry_decision_validation, retry_understanding_validation, validate_decision_output,
+        validate_tool_output, validate_understanding_output,
     };
 
     #[derive(Default)]
@@ -617,6 +760,55 @@ mod tests {
         trace: Arc<TraceLog>,
     }
 
+    #[derive(Default)]
+    struct FakeAiRunRepository {
+        created_runs: Mutex<Vec<CreateAiRunRecord>>,
+        created_action_plans: Mutex<Vec<CreateAiActionPlanRecord>>,
+        fail_on_create_run: Mutex<Option<AppError>>,
+        fail_on_create_action_plan: Mutex<Option<AppError>>,
+    }
+
+    #[async_trait]
+    impl AiRunRepository for FakeAiRunRepository {
+        async fn record_run(
+            &self,
+            input: CreateAiRunRecord,
+            action_plan: Option<CreateAiActionPlanRecord>,
+        ) -> Result<String, AppError> {
+            if let Some(error) = self
+                .fail_on_create_run
+                .lock()
+                .expect("mutex should not be poisoned")
+                .take()
+            {
+                return Err(error);
+            }
+
+            self.created_runs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .push(input);
+
+            if let Some(error) = self
+                .fail_on_create_action_plan
+                .lock()
+                .expect("mutex should not be poisoned")
+                .take()
+            {
+                return Err(error);
+            }
+
+            if let Some(input) = action_plan {
+                self.created_action_plans
+                    .lock()
+                    .expect("mutex should not be poisoned")
+                    .push(input);
+            }
+
+            Ok("run-db-1".to_string())
+        }
+    }
+
     #[async_trait]
     impl AiExecutor for FakeExecutor {
         async fn execute(
@@ -638,6 +830,7 @@ mod tests {
     #[tokio::test]
     async fn orchestrator_runs_understand_decide_validate_execute_in_order() {
         let trace = Arc::new(TraceLog::default());
+        let repository = Arc::new(FakeAiRunRepository::default());
         let runner = AiRunner::new(
             Arc::new(FakeUnderstander {
                 trace: trace.clone(),
@@ -651,6 +844,7 @@ mod tests {
             Arc::new(FakeExecutor {
                 trace: trace.clone(),
             }),
+            repository.clone(),
         );
 
         let result = runner
@@ -664,15 +858,36 @@ mod tests {
             .expect("run should succeed");
 
         assert_eq!(
-            trace.entries.lock().expect("mutex should not be poisoned").clone(),
+            trace
+                .entries
+                .lock()
+                .expect("mutex should not be poisoned")
+                .clone(),
             vec!["understand", "decide", "validate", "execute"]
         );
         assert_eq!(result.record.status, AiExecutionStatus::Completed);
+        assert_eq!(
+            repository
+                .created_runs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            1
+        );
+        assert_eq!(
+            repository
+                .created_action_plans
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]
     async fn orchestrator_returns_single_run_record_and_outcome() {
         let trace = Arc::new(TraceLog::default());
+        let repository = Arc::new(FakeAiRunRepository::default());
         let runner = AiRunner::new(
             Arc::new(FakeUnderstander {
                 trace: trace.clone(),
@@ -684,6 +899,7 @@ mod tests {
                 trace: trace.clone(),
             }),
             Arc::new(FakeExecutor { trace }),
+            repository.clone(),
         );
 
         let result = runner
@@ -698,6 +914,7 @@ mod tests {
 
         assert_eq!(result.record.raw_log_id, "log-1");
         assert_eq!(result.record.attempts, 1);
+        assert_eq!(result.record.run_id, "run-db-1");
 
         match result.outcome {
             AiExecutionOutcome::Applied { intent, decision } => {
@@ -733,6 +950,7 @@ mod tests {
         }
 
         let trace = Arc::new(TraceLog::default());
+        let repository = Arc::new(FakeAiRunRepository::default());
         let runner = AiRunner::new(
             Arc::new(FakeUnderstander {
                 trace: trace.clone(),
@@ -746,6 +964,7 @@ mod tests {
             Arc::new(FakeExecutor {
                 trace: trace.clone(),
             }),
+            repository.clone(),
         );
 
         let result = runner
@@ -759,7 +978,11 @@ mod tests {
             .expect("run should succeed");
 
         assert_eq!(
-            trace.entries.lock().expect("mutex should not be poisoned").clone(),
+            trace
+                .entries
+                .lock()
+                .expect("mutex should not be poisoned")
+                .clone(),
             vec!["understand", "decide", "validate"]
         );
 
@@ -767,14 +990,75 @@ mod tests {
             AiRunResult {
                 record:
                     AiRunRecord {
+                        run_id,
                         status: AiExecutionStatus::Rejected,
                         ..
                     },
                 outcome: AiExecutionOutcome::Rejected { reason },
             } => {
+                assert_eq!(run_id, "run-db-1");
                 assert!(reason.contains("missing required field"));
             }
             other => panic!("expected rejected run result, got {other:?}"),
+        }
+
+        assert_eq!(
+            repository
+                .created_runs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            1
+        );
+        assert_eq!(
+            repository
+                .created_action_plans
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn orchestrator_surfaces_persistence_failure_when_run_snapshot_cannot_be_written() {
+        let trace = Arc::new(TraceLog::default());
+        let repository = Arc::new(FakeAiRunRepository::default());
+        repository
+            .fail_on_create_run
+            .lock()
+            .expect("mutex should not be poisoned")
+            .replace(AppError::InternalState("ai run insert failed".to_string()));
+
+        let runner = AiRunner::new(
+            Arc::new(FakeUnderstander {
+                trace: trace.clone(),
+            }),
+            Arc::new(FakeDecisionEngine {
+                trace: trace.clone(),
+            }),
+            Arc::new(FakeValidator {
+                trace: trace.clone(),
+            }),
+            Arc::new(FakeExecutor { trace }),
+            repository,
+        );
+
+        let error = runner
+            .run(AiRunContext {
+                raw_log_id: "log-1".to_string(),
+                user_id: "user-1".to_string(),
+                message_text: "今天 9:40 起床".to_string(),
+                encoding: "json".to_string(),
+            })
+            .await
+            .expect_err("run should fail when persistence fails");
+
+        match error {
+            AppError::InternalState(message) => {
+                assert!(message.contains("ai run insert failed"));
+            }
+            other => panic!("expected internal state error, got {other:?}"),
         }
     }
 
@@ -841,8 +1125,9 @@ mod tests {
 
     #[tokio::test]
     async fn fake_understander_surface_provider_failure_without_hiding_it() {
-        let understander =
-            FakeAiUnderstander::with_error(AppError::InternalState("provider unavailable".to_string()));
+        let understander = FakeAiUnderstander::with_error(AppError::InternalState(
+            "provider unavailable".to_string(),
+        ));
 
         let error = understander
             .understand_input(AiUnderstandingInput {
@@ -934,8 +1219,9 @@ mod tests {
 
     #[tokio::test]
     async fn fake_decision_engine_surfaces_provider_failure() {
-        let engine =
-            FakeAiDecisionEngine::with_error(AppError::InternalState("decision failed".to_string()));
+        let engine = FakeAiDecisionEngine::with_error(AppError::InternalState(
+            "decision failed".to_string(),
+        ));
 
         let error = engine
             .decide_input(AiDecisionInput {

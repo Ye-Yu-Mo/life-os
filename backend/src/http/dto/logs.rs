@@ -125,15 +125,17 @@ impl ImportRawLogsRequest {
                 crate::error::AppError::Validation(format!("invalid csv import: {error}"))
             })?;
 
-            records.push(CreateRawLogRequest {
-                user_id: record.user_id,
-                raw_text: record.raw_text,
-                input_channel: record.input_channel,
-                source_type: record.source_type,
-                context_date: record.context_date,
-                timezone: record.timezone,
-            }
-            .try_into()?);
+            records.push(
+                CreateRawLogRequest {
+                    user_id: record.user_id,
+                    raw_text: record.raw_text,
+                    input_channel: record.input_channel,
+                    source_type: record.source_type,
+                    context_date: record.context_date,
+                    timezone: record.timezone,
+                }
+                .try_into()?,
+            );
         }
 
         if records.is_empty() {

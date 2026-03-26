@@ -107,7 +107,9 @@ impl Config {
             .get("DATABASE_MAX_CONNECTIONS")
             .map(|value| value.parse::<u32>())
             .transpose()
-            .map_err(|error| AppError::Config(format!("invalid DATABASE_MAX_CONNECTIONS: {error}")))?
+            .map_err(|error| {
+                AppError::Config(format!("invalid DATABASE_MAX_CONNECTIONS: {error}"))
+            })?
             .unwrap_or(5);
         let telegram_enabled = env
             .get("TELEGRAM_ENABLED")

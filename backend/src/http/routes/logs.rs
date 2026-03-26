@@ -73,10 +73,10 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
-    use axum::body::{to_bytes, Body};
+    use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode};
     use chrono::{TimeZone, Utc};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use tower::ServiceExt;
 
     use super::*;

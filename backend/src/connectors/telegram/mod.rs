@@ -27,7 +27,8 @@ pub fn map_message_to_raw_log(
         ));
     }
 
-    if !config.allowlist_chat_ids.is_empty() && !config.allowlist_chat_ids.contains(&message.chat_id)
+    if !config.allowlist_chat_ids.is_empty()
+        && !config.allowlist_chat_ids.contains(&message.chat_id)
     {
         return Err(AppError::Validation(format!(
             "telegram chat_id {} is not in allowlist",

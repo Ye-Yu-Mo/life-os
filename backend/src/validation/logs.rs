@@ -18,9 +18,8 @@ pub fn validate_raw_text(raw_text: &str) -> Result<(), AppError> {
 
 pub fn validate_context_date(context_date: Option<&str>) -> Result<(), AppError> {
     if let Some(value) = context_date {
-        chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|error| {
-            AppError::Validation(format!("invalid context_date: {error}"))
-        })?;
+        chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .map_err(|error| AppError::Validation(format!("invalid context_date: {error}")))?;
     }
 
     Ok(())

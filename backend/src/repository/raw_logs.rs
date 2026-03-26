@@ -178,7 +178,9 @@ async fn insert_raw_log(
     .bind(format_source_type(input.source_type))
     .bind(parse_context_date(input.context_date.as_deref())?)
     .bind(input.timezone)
-    .bind(format_parse_status(crate::domain::raw_logs::ParseStatus::Pending))
+    .bind(format_parse_status(
+        crate::domain::raw_logs::ParseStatus::Pending,
+    ))
     .fetch_one(transaction.as_mut())
     .await?;
 

@@ -17,7 +17,9 @@ struct HealthResponse {
 pub fn build_router(raw_log_service: Arc<RawLogService>) -> Router {
     Router::new()
         .route("/health", get(health))
-        .merge(routes::logs::router(routes::logs::LogsApiState { raw_log_service }))
+        .merge(routes::logs::router(routes::logs::LogsApiState {
+            raw_log_service,
+        }))
 }
 
 async fn health() -> Json<HealthResponse> {

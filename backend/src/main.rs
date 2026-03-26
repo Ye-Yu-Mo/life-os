@@ -25,9 +25,11 @@ async fn main() -> Result<(), AppError> {
     let raw_log_service = Arc::new(RawLogService::new(raw_log_repository));
     let app = backend::http::build_router(raw_log_service);
     let listener = tokio::net::TcpListener::bind(SocketAddr::from((
-        config.server.host.parse::<std::net::IpAddr>().map_err(|error| {
-            AppError::Config(format!("invalid APP_HOST: {error}"))
-        })?,
+        config
+            .server
+            .host
+            .parse::<std::net::IpAddr>()
+            .map_err(|error| AppError::Config(format!("invalid APP_HOST: {error}")))?,
         config.server.port,
     )))
     .await

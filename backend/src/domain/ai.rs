@@ -96,6 +96,7 @@ pub struct AiToolOutput {
 pub enum AiExecutionStatus {
     Completed,
     Rejected,
+    Failed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +131,7 @@ pub struct AiRunRecord {
     pub status: AiExecutionStatus,
     pub attempts: usize,
     pub stage_trace: Vec<String>,
+    pub error_message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,8 +144,8 @@ pub struct AiRunResult {
 mod tests {
     use crate::domain::ai::{
         AiActionPlan, AiActionPlanKind, AiDecisionInput, AiDecisionOutput, AiExecutionOutcome,
-        AiExecutionStatus, AiIntent, AiToolInput, AiToolKind, AiToolOutput,
-        AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
+        AiExecutionStatus, AiIntent, AiRunContext, AiRunRecord, AiRunResult, AiToolInput,
+        AiToolKind, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput,
     };
 
     #[test]
@@ -173,6 +175,7 @@ mod tests {
                 "validate".to_string(),
                 "execute".to_string(),
             ],
+            error_message: None,
         };
 
         assert_eq!(record.attempts, 2);
@@ -193,6 +196,7 @@ mod tests {
                     "validate".to_string(),
                     "execute".to_string(),
                 ],
+                error_message: None,
             },
             outcome: AiExecutionOutcome::Applied {
                 intent: AiIntent::Record,

@@ -71,17 +71,15 @@ async fn submit_raw_log(
         .map_err(|error| AppError::InternalState(format!("failed to reach backend: {error}")))?;
 
     if response.status().is_success() {
-        return response
-            .json::<RawLogResponse>()
-            .await
-            .map_err(|error| AppError::InternalState(format!("invalid backend response: {error}")));
+        return response.json::<RawLogResponse>().await.map_err(|error| {
+            AppError::InternalState(format!("invalid backend response: {error}"))
+        });
     }
 
     let status = response.status();
-    let error_text = response
-        .text()
-        .await
-        .map_err(|error| AppError::InternalState(format!("failed to read error response: {error}")))?;
+    let error_text = response.text().await.map_err(|error| {
+        AppError::InternalState(format!("failed to read error response: {error}"))
+    })?;
     let message = parse_error_message(status, &error_text);
 
     match status {
@@ -146,7 +144,10 @@ mod tests {
     use serde_json::json;
     use tokio::net::TcpListener;
 
-    use super::{RawLogResponse, build_create_raw_log_request, parse_args_from, parse_error_message, resolve_api_base_url, submit_raw_log};
+    use super::{
+        RawLogResponse, build_create_raw_log_request, parse_args_from, parse_error_message,
+        resolve_api_base_url, submit_raw_log,
+    };
 
     #[test]
     fn parses_required_cli_arguments() {
@@ -243,13 +244,15 @@ mod tests {
     async fn submit_raw_log_posts_request_to_backend() {
         let app = Router::new().route(
             "/logs",
-            post(|Json(request): Json<backend::http::dto::logs::CreateRawLogRequest>| async move {
-                assert_eq!(request.user_id, "550e8400-e29b-41d4-a716-446655440001");
-                assert_eq!(request.raw_text, "今天 9:40 起床");
-                assert_eq!(request.input_channel, "cli");
+            post(
+                |Json(request): Json<backend::http::dto::logs::CreateRawLogRequest>| async move {
+                    assert_eq!(request.user_id, "550e8400-e29b-41d4-a716-446655440001");
+                    assert_eq!(request.raw_text, "今天 9:40 起床");
+                    assert_eq!(request.input_channel, "cli");
 
-                Json(sample_raw_log_response())
-            }),
+                    Json(sample_raw_log_response())
+                },
+            ),
         );
         let base_url = spawn_test_server(app).await;
         let client = reqwest::Client::new();
@@ -377,9 +380,7 @@ mod tests {
         let address = listener.local_addr().expect("address should exist");
 
         tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("server should run");
+            axum::serve(listener, app).await.expect("server should run");
         });
 
         format!("http://{address}")

@@ -39,8 +39,7 @@ impl ConnectorRuntimeMode {
 #[cfg(test)]
 mod tests {
     use crate::connectors::{
-        ConnectorKind, ConnectorRuntimeMode,
-        feishu::FeishuConnectorConfig,
+        ConnectorKind, ConnectorRuntimeMode, feishu::FeishuConnectorConfig,
         wechat_bridge::WechatBridgeConnectorConfig,
     };
 
