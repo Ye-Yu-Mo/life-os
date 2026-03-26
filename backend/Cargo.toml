@@ -7,6 +7,7 @@ edition = "2024"
 async-trait = "0.1.89"
 axum = "0.8.4"
 chrono = { version = "0.4.42", features = ["clock"] }
+dotenvy = "0.15.7"
 http = "1.3.1"
 serde = { version = "1.0.219", features = ["derive"] }
 sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "macros", "chrono", "uuid"] }

@@ -123,6 +123,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "dotenvy",
  "http",
  "serde",
  "serde_json",

@@ -25,4 +25,14 @@ describe('App routing', () => {
 
     expect(screen.getByRole('heading', { name: /quick input/i })).toBeInTheDocument()
   })
+
+  it('renders raw logs page on logs route', () => {
+    render(
+      <MemoryRouter initialEntries={['/logs']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('heading', { name: /raw logs/i })).toBeInTheDocument()
+  })
 })

@@ -15,6 +15,8 @@ pub enum AppError {
     InternalState(String),
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
+    #[error("migration error: {0}")]
+    Migration(#[from] sqlx::migrate::MigrateError),
     #[error("internal server error")]
     Internal,
 }
@@ -44,6 +46,11 @@ impl IntoResponse for AppError {
             Self::Database(error) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "database_error",
+                error.to_string(),
+            ),
+            Self::Migration(error) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "migration_error",
                 error.to_string(),
             ),
             Self::Internal => (

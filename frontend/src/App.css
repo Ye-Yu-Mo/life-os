@@ -97,6 +97,21 @@
   color: #0d2038;
 }
 
+.raw-logs-loading {
+  display: flex;
+  justify-content: center;
+  padding: 80px 24px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(135, 155, 179, 0.22);
+  border-radius: 20px;
+}
+
+.raw-log-detail-text.ant-typography {
+  margin-bottom: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 768px) {
   .app-header {
     align-items: flex-start;

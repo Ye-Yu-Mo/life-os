@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
@@ -98,7 +98,7 @@ impl RawLogRepository for PgRawLogRepository {
         .bind(input.raw_text)
         .bind(format_input_channel(input.input_channel))
         .bind(format_source_type(input.source_type))
-        .bind(input.context_date)
+        .bind(parse_context_date(input.context_date.as_deref())?)
         .bind(input.timezone)
         .bind(format_parse_status(crate::domain::raw_logs::ParseStatus::Pending))
         .fetch_one(&self.pool)
@@ -163,6 +163,15 @@ impl RawLogRepository for PgRawLogRepository {
 
 fn parse_uuid(value: &str) -> Result<Uuid, AppError> {
     Uuid::parse_str(value).map_err(|error| AppError::Validation(format!("invalid uuid: {error}")))
+}
+
+fn parse_context_date(value: Option<&str>) -> Result<Option<NaiveDate>, AppError> {
+    value
+        .map(|raw| {
+            NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+                .map_err(|error| AppError::Validation(format!("invalid context_date: {error}")))
+        })
+        .transpose()
 }
 
 fn parse_input_channel(value: &str) -> Result<crate::domain::raw_logs::InputChannel, AppError> {

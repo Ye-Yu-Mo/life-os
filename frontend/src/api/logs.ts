@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3000',
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api',
   timeout: 10000,
 })
 
@@ -38,6 +38,16 @@ type ApiErrorBody = {
 
 export async function createRawLog(payload: CreateRawLogPayload) {
   const response = await apiClient.post<RawLog>('/logs', payload)
+  return response.data
+}
+
+export async function fetchRawLogs() {
+  const response = await apiClient.get<RawLog[]>('/logs')
+  return response.data
+}
+
+export async function fetchRawLogById(id: string) {
+  const response = await apiClient.get<RawLog>(`/logs/${id}`)
   return response.data
 }
 

@@ -18,14 +18,42 @@ pub async fn create_db_pool(config: &config::Config) -> Result<PgPool, error::Ap
     Ok(pool)
 }
 
+pub async fn run_migrations(pool: &PgPool) -> Result<(), error::AppError> {
+    sqlx::migrate!("./migrations").run(pool).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
 
+    use crate::domain::raw_logs::{CreateRawLog, RawLog};
     use crate::config::Config;
     use crate::error::AppError;
+    use crate::repository::raw_logs::RawLogRepository;
+    use crate::service::raw_logs::RawLogService;
+
+    struct FakeRawLogRepository;
+
+    #[async_trait]
+    impl RawLogRepository for FakeRawLogRepository {
+        async fn create(&self, _input: CreateRawLog) -> Result<RawLog, AppError> {
+            Err(AppError::Internal)
+        }
+
+        async fn list(&self) -> Result<Vec<RawLog>, AppError> {
+            Ok(vec![])
+        }
+
+        async fn get_by_id(&self, _id: &str) -> Result<Option<RawLog>, AppError> {
+            Ok(None)
+        }
+    }
 
     #[test]
     fn loads_config_from_env() {
@@ -61,7 +89,9 @@ mod tests {
 
     #[tokio::test]
     async fn health_route_returns_ok() {
-        let app = crate::http::build_router();
+        let app = crate::http::build_router(Arc::new(RawLogService::new(Arc::new(
+            FakeRawLogRepository,
+        ))));
 
         let response = app
             .oneshot(
