@@ -9,6 +9,7 @@ use crate::error::AppError;
 #[async_trait]
 pub trait RawLogRepository: Send + Sync {
     async fn create(&self, input: CreateRawLog) -> Result<RawLog, AppError>;
+    async fn create_many(&self, inputs: Vec<CreateRawLog>) -> Result<Vec<RawLog>, AppError>;
     async fn list(&self) -> Result<Vec<RawLog>, AppError>;
     async fn get_by_id(&self, id: &str) -> Result<Option<RawLog>, AppError>;
 }
@@ -63,48 +64,23 @@ impl TryFrom<RawLogRecord> for RawLog {
 #[async_trait]
 impl RawLogRepository for PgRawLogRepository {
     async fn create(&self, input: CreateRawLog) -> Result<RawLog, AppError> {
-        let record = sqlx::query_as::<_, RawLogRecord>(
-            r#"
-            INSERT INTO raw_logs (
-                id,
-                user_id,
-                raw_text,
-                input_channel,
-                source_type,
-                context_date,
-                timezone,
-                parse_status,
-                parser_version,
-                parse_error
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)
-            RETURNING
-                id::text AS id,
-                user_id::text AS user_id,
-                raw_text,
-                input_channel,
-                source_type,
-                context_date::text AS context_date,
-                timezone,
-                parse_status,
-                parser_version,
-                parse_error,
-                created_at,
-                updated_at
-            "#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(parse_uuid(&input.user_id)?)
-        .bind(input.raw_text)
-        .bind(format_input_channel(input.input_channel))
-        .bind(format_source_type(input.source_type))
-        .bind(parse_context_date(input.context_date.as_deref())?)
-        .bind(input.timezone)
-        .bind(format_parse_status(crate::domain::raw_logs::ParseStatus::Pending))
-        .fetch_one(&self.pool)
-        .await?;
+        let mut created = self.create_many(vec![input]).await?;
+        created
+            .pop()
+            .ok_or_else(|| AppError::InternalState("batch insert returned no rows".to_string()))
+    }
 
-        record.try_into()
+    async fn create_many(&self, inputs: Vec<CreateRawLog>) -> Result<Vec<RawLog>, AppError> {
+        let mut transaction = self.pool.begin().await?;
+        let mut created = Vec::with_capacity(inputs.len());
+
+        for input in inputs {
+            let record = insert_raw_log(&mut transaction, input).await?;
+            created.push(record.try_into()?);
+        }
+
+        transaction.commit().await?;
+        Ok(created)
     }
 
     async fn list(&self) -> Result<Vec<RawLog>, AppError> {
@@ -159,6 +135,54 @@ impl RawLogRepository for PgRawLogRepository {
 
         record.map(TryInto::try_into).transpose()
     }
+}
+
+async fn insert_raw_log(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    input: CreateRawLog,
+) -> Result<RawLogRecord, AppError> {
+    let record = sqlx::query_as::<_, RawLogRecord>(
+        r#"
+        INSERT INTO raw_logs (
+            id,
+            user_id,
+            raw_text,
+            input_channel,
+            source_type,
+            context_date,
+            timezone,
+            parse_status,
+            parser_version,
+            parse_error
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)
+        RETURNING
+            id::text AS id,
+            user_id::text AS user_id,
+            raw_text,
+            input_channel,
+            source_type,
+            context_date::text AS context_date,
+            timezone,
+            parse_status,
+            parser_version,
+            parse_error,
+            created_at,
+            updated_at
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(parse_uuid(&input.user_id)?)
+    .bind(input.raw_text)
+    .bind(format_input_channel(input.input_channel))
+    .bind(format_source_type(input.source_type))
+    .bind(parse_context_date(input.context_date.as_deref())?)
+    .bind(input.timezone)
+    .bind(format_parse_status(crate::domain::raw_logs::ParseStatus::Pending))
+    .fetch_one(transaction.as_mut())
+    .await?;
+
+    Ok(record)
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid, AppError> {

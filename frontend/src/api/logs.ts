@@ -29,6 +29,32 @@ export type RawLog = {
   updated_at: string
 }
 
+export type ImportRawLogRecord = {
+  user_id: string
+  raw_text: string
+  input_channel: 'import'
+  source_type: 'imported'
+  context_date?: string
+  timezone?: string
+}
+
+export type ImportRawLogsPayload =
+  | {
+      format: 'json'
+      records: ImportRawLogRecord[]
+    }
+  | {
+      format: 'csv'
+      content: string
+    }
+
+export type ImportRawLogsResult = {
+  total_count: number
+  success_count: number
+  failure_count: number
+  errors: string[]
+}
+
 type ApiErrorBody = {
   error?: {
     code?: string
@@ -48,6 +74,11 @@ export async function fetchRawLogs() {
 
 export async function fetchRawLogById(id: string) {
   const response = await apiClient.get<RawLog>(`/logs/${id}`)
+  return response.data
+}
+
+export async function importRawLogs(payload: ImportRawLogsPayload) {
+  const response = await apiClient.post<ImportRawLogsResult>('/logs/import', payload)
   return response.data
 }
 

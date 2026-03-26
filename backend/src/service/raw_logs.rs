@@ -5,6 +5,14 @@ use crate::error::AppError;
 use crate::repository::raw_logs::RawLogRepository;
 use crate::validation::logs::{validate_context_date, validate_raw_text};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportRawLogsResult {
+    pub total_count: usize,
+    pub success_count: usize,
+    pub failure_count: usize,
+    pub errors: Vec<String>,
+}
+
 pub struct RawLogService {
     repository: Arc<dyn RawLogRepository>,
 }
@@ -26,6 +34,42 @@ impl RawLogService {
 
     pub async fn get_by_id(&self, id: &str) -> Result<Option<RawLog>, AppError> {
         self.repository.get_by_id(id).await
+    }
+
+    pub async fn import(&self, inputs: Vec<CreateRawLog>) -> Result<ImportRawLogsResult, AppError> {
+        if inputs.is_empty() {
+            return Err(AppError::Validation(
+                "import records cannot be empty".to_string(),
+            ));
+        }
+
+        for (index, input) in inputs.iter().enumerate() {
+            validate_raw_text(&input.raw_text).map_err(|error| {
+                annotate_import_validation_error(index, error)
+            })?;
+            validate_context_date(input.context_date.as_deref()).map_err(|error| {
+                annotate_import_validation_error(index, error)
+            })?;
+        }
+
+        let total_count = inputs.len();
+        self.repository.create_many(inputs).await?;
+
+        Ok(ImportRawLogsResult {
+            total_count,
+            success_count: total_count,
+            failure_count: 0,
+            errors: vec![],
+        })
+    }
+}
+
+fn annotate_import_validation_error(index: usize, error: AppError) -> AppError {
+    match error {
+        AppError::Validation(message) => {
+            AppError::Validation(format!("record {}: {}", index + 1, message))
+        }
+        other => other,
     }
 }
 
@@ -57,6 +101,20 @@ mod tests {
                 .push(input.clone());
 
             Ok(sample_raw_log_from_input(input))
+        }
+
+        async fn create_many(&self, inputs: Vec<CreateRawLog>) -> Result<Vec<RawLog>, AppError> {
+            let mut created = Vec::with_capacity(inputs.len());
+
+            for input in inputs {
+                self.created_inputs
+                    .lock()
+                    .expect("mutex should not be poisoned")
+                    .push(input.clone());
+                created.push(sample_raw_log_from_input(input));
+            }
+
+            Ok(created)
         }
 
         async fn list(&self) -> Result<Vec<RawLog>, AppError> {
@@ -209,6 +267,74 @@ mod tests {
 
         match error {
             AppError::Validation(message) => assert!(message.contains("context_date")),
+            other => panic!("expected validation error, got {other:?}"),
+        }
+
+        assert_eq!(
+            repository
+                .created_inputs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn import_creates_all_records_when_batch_is_valid() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        let service = RawLogService::new(repository.clone());
+
+        let result = service
+            .import(vec![
+                sample_create_raw_log(),
+                CreateRawLog {
+                    raw_text: "晚上跑步 35 分钟".to_string(),
+                    input_channel: InputChannel::Import,
+                    source_type: SourceType::Imported,
+                    ..sample_create_raw_log()
+                },
+            ])
+            .await
+            .expect("import should succeed");
+
+        assert_eq!(result.total_count, 2);
+        assert_eq!(result.success_count, 2);
+        assert_eq!(result.failure_count, 0);
+        assert!(result.errors.is_empty());
+        assert_eq!(
+            repository
+                .created_inputs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn import_rejects_invalid_batch_before_repository_call() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        let service = RawLogService::new(repository.clone());
+
+        let error = service
+            .import(vec![
+                sample_create_raw_log(),
+                CreateRawLog {
+                    raw_text: "".to_string(),
+                    input_channel: InputChannel::Import,
+                    source_type: SourceType::Imported,
+                    ..sample_create_raw_log()
+                },
+            ])
+            .await
+            .expect_err("import should fail");
+
+        match error {
+            AppError::Validation(message) => {
+                assert!(message.contains("record 2"));
+                assert!(message.contains("raw_text"));
+            }
             other => panic!("expected validation error, got {other:?}"),
         }
 

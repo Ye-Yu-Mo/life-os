@@ -46,6 +46,10 @@ mod tests {
             Err(AppError::Internal)
         }
 
+        async fn create_many(&self, _inputs: Vec<CreateRawLog>) -> Result<Vec<RawLog>, AppError> {
+            Err(AppError::Internal)
+        }
+
         async fn list(&self) -> Result<Vec<RawLog>, AppError> {
             Ok(vec![])
         }

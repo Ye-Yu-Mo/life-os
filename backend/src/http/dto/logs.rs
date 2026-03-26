@@ -28,6 +28,31 @@ pub struct RawLogResponse {
     pub updated_at: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ImportRawLogsRequest {
+    pub format: String,
+    pub records: Option<Vec<CreateRawLogRequest>>,
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ImportRawLogsResponse {
+    pub total_count: usize,
+    pub success_count: usize,
+    pub failure_count: usize,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CsvRawLogRecord {
+    user_id: String,
+    raw_text: String,
+    input_channel: String,
+    source_type: String,
+    context_date: Option<String>,
+    timezone: Option<String>,
+}
+
 impl TryFrom<CreateRawLogRequest> for CreateRawLog {
     type Error = crate::error::AppError;
 
@@ -59,6 +84,65 @@ impl From<RawLog> for RawLogResponse {
             created_at: value.created_at.to_rfc3339(),
             updated_at: value.updated_at.to_rfc3339(),
         }
+    }
+}
+
+impl ImportRawLogsRequest {
+    pub fn try_into_create_raw_logs(self) -> Result<Vec<CreateRawLog>, crate::error::AppError> {
+        match self.format.as_str() {
+            "json" => self.parse_json_records(),
+            "csv" => self.parse_csv_records(),
+            other => Err(crate::error::AppError::Validation(format!(
+                "invalid import format: {other}"
+            ))),
+        }
+    }
+
+    fn parse_json_records(self) -> Result<Vec<CreateRawLog>, crate::error::AppError> {
+        let records = self.records.ok_or_else(|| {
+            crate::error::AppError::Validation("json import requires records".to_string())
+        })?;
+
+        if records.is_empty() {
+            return Err(crate::error::AppError::Validation(
+                "import records cannot be empty".to_string(),
+            ));
+        }
+
+        records.into_iter().map(TryInto::try_into).collect()
+    }
+
+    fn parse_csv_records(self) -> Result<Vec<CreateRawLog>, crate::error::AppError> {
+        let content = self.content.ok_or_else(|| {
+            crate::error::AppError::Validation("csv import requires content".to_string())
+        })?;
+
+        let mut reader = csv::Reader::from_reader(content.as_bytes());
+        let mut records = Vec::new();
+
+        for row in reader.deserialize::<CsvRawLogRecord>() {
+            let record = row.map_err(|error| {
+                crate::error::AppError::Validation(format!("invalid csv import: {error}"))
+            })?;
+
+            records.push(CreateRawLogRequest {
+                user_id: record.user_id,
+                raw_text: record.raw_text,
+                input_channel: record.input_channel,
+                source_type: record.source_type,
+                context_date: record.context_date,
+                timezone: record.timezone,
+            }
+            .try_into()?);
+        }
+
+        if records.is_empty() {
+            return Err(crate::error::AppError::Validation(
+                "import records cannot be empty".to_string(),
+            ));
+        }
+
+        Ok(records)
     }
 }
 

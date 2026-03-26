@@ -5,7 +5,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 
 use crate::error::AppError;
-use crate::http::dto::logs::{CreateRawLogRequest, RawLogResponse};
+use crate::http::dto::logs::{
+    CreateRawLogRequest, ImportRawLogsRequest, ImportRawLogsResponse, RawLogResponse,
+};
 use crate::service::raw_logs::RawLogService;
 
 #[derive(Clone)]
@@ -16,6 +18,7 @@ pub struct LogsApiState {
 pub fn router(state: LogsApiState) -> Router {
     Router::new()
         .route("/logs", post(create_log).get(list_logs))
+        .route("/logs/import", post(import_logs))
         .route("/logs/{id}", get(get_log))
         .with_state(state)
 }
@@ -48,15 +51,32 @@ async fn get_log(
     Ok(Json(raw_log.into()))
 }
 
+async fn import_logs(
+    State(state): State<LogsApiState>,
+    Json(request): Json<ImportRawLogsRequest>,
+) -> Result<Json<ImportRawLogsResponse>, AppError> {
+    let result = state
+        .raw_log_service
+        .import(request.try_into_create_raw_logs()?)
+        .await?;
+
+    Ok(Json(ImportRawLogsResponse {
+        total_count: result.total_count,
+        success_count: result.success_count,
+        failure_count: result.failure_count,
+        errors: result.errors,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
-    use axum::body::Body;
+    use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use chrono::{TimeZone, Utc};
-    use serde_json::json;
+    use serde_json::{json, Value};
     use tower::ServiceExt;
 
     use super::*;
@@ -78,6 +98,27 @@ mod tests {
                 .expect("mutex should not be poisoned")
                 .push(input.clone());
             Ok(sample_raw_log())
+        }
+
+        async fn create_many(&self, inputs: Vec<CreateRawLog>) -> Result<Vec<RawLog>, AppError> {
+            let mut created = Vec::with_capacity(inputs.len());
+
+            for input in inputs {
+                self.created_inputs
+                    .lock()
+                    .expect("mutex should not be poisoned")
+                    .push(input.clone());
+                created.push(RawLog {
+                    raw_text: input.raw_text,
+                    input_channel: input.input_channel,
+                    source_type: input.source_type,
+                    context_date: input.context_date,
+                    timezone: input.timezone,
+                    ..sample_raw_log()
+                });
+            }
+
+            Ok(created)
         }
 
         async fn list(&self) -> Result<Vec<RawLog>, AppError> {
@@ -239,5 +280,188 @@ mod tests {
             .expect("request should succeed");
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn post_logs_import_accepts_json_batch_and_returns_summary() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        let app = build_test_router(repository.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/logs/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "format": "json",
+                            "records": [
+                                {
+                                    "user_id": "550e8400-e29b-41d4-a716-446655440001",
+                                    "raw_text": "今天 9:40 起床",
+                                    "input_channel": "import",
+                                    "source_type": "imported",
+                                    "context_date": "2026-03-26",
+                                    "timezone": "Asia/Shanghai"
+                                },
+                                {
+                                    "user_id": "550e8400-e29b-41d4-a716-446655440001",
+                                    "raw_text": "晚上跑步 35 分钟",
+                                    "input_channel": "import",
+                                    "source_type": "imported",
+                                    "context_date": "2026-03-26",
+                                    "timezone": "Asia/Shanghai"
+                                }
+                            ]
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        let body = read_json(response).await;
+
+        assert_eq!(body["total_count"], 2);
+        assert_eq!(body["success_count"], 2);
+        assert_eq!(body["failure_count"], 0);
+        assert_eq!(body["errors"], json!([]));
+        assert_eq!(
+            repository
+                .created_inputs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn post_logs_import_accepts_csv_batch_and_returns_summary() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        let app = build_test_router(repository.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/logs/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "format": "csv",
+                            "content": "user_id,raw_text,input_channel,source_type,context_date,timezone\n550e8400-e29b-41d4-a716-446655440001,今天 9:40 起床,import,imported,2026-03-26,Asia/Shanghai\n550e8400-e29b-41d4-a716-446655440001,晚上跑步 35 分钟,import,imported,2026-03-26,Asia/Shanghai\n"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        let body = read_json(response).await;
+
+        assert_eq!(body["total_count"], 2);
+        assert_eq!(body["success_count"], 2);
+        assert_eq!(body["failure_count"], 0);
+        assert_eq!(body["errors"], json!([]));
+        assert_eq!(
+            repository
+                .created_inputs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn post_logs_import_rejects_unknown_format() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        let app = build_test_router(repository);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/logs/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "format": "xml",
+                            "content": "<logs />"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn post_logs_import_rejects_invalid_row_without_partial_write() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        let app = build_test_router(repository.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/logs/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "format": "json",
+                            "records": [
+                                {
+                                    "user_id": "550e8400-e29b-41d4-a716-446655440001",
+                                    "raw_text": "今天 9:40 起床",
+                                    "input_channel": "import",
+                                    "source_type": "imported",
+                                    "context_date": "2026-03-26",
+                                    "timezone": "Asia/Shanghai"
+                                },
+                                {
+                                    "user_id": "550e8400-e29b-41d4-a716-446655440001",
+                                    "raw_text": "",
+                                    "input_channel": "import",
+                                    "source_type": "imported",
+                                    "context_date": "2026-03-26",
+                                    "timezone": "Asia/Shanghai"
+                                }
+                            ]
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            repository
+                .created_inputs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            0
+        );
+    }
+
+    async fn read_json(response: axum::response::Response) -> Value {
+        let status = response.status();
+        assert_eq!(status, StatusCode::OK);
+
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should read");
+
+        serde_json::from_slice(&bytes).expect("body should be valid json")
     }
 }
