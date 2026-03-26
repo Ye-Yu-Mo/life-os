@@ -1,4 +1,5 @@
 pub mod config;
+pub mod connectors;
 pub mod domain;
 pub mod error;
 pub mod http;
@@ -89,6 +90,68 @@ mod tests {
             }
             other => panic!("expected config error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn loads_telegram_connector_config_from_env() {
+        let config = Config::from_env_map([
+            ("APP_HOST", "127.0.0.1"),
+            ("APP_PORT", "4100"),
+            ("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/life_os"),
+            ("DATABASE_MAX_CONNECTIONS", "7"),
+            ("TELEGRAM_ENABLED", "true"),
+            ("TELEGRAM_BOT_TOKEN", "test-bot-token"),
+            ("TELEGRAM_ALLOWLIST_CHAT_IDS", "10001,10002"),
+            ("TELEGRAM_CALLBACK_MODE", "webhook"),
+            ("TELEGRAM_WEBHOOK_BASE_URL", "https://example.com"),
+        ])
+        .expect("config should load");
+
+        assert!(config.telegram.enabled);
+        assert_eq!(config.telegram.bot_token.as_deref(), Some("test-bot-token"));
+        assert_eq!(config.telegram.allowlist_chat_ids, vec![10001, 10002]);
+        assert_eq!(
+            config.telegram.callback_mode,
+            crate::config::TelegramCallbackMode::Webhook
+        );
+        assert_eq!(
+            config.telegram.webhook_base_url.as_deref(),
+            Some("https://example.com")
+        );
+    }
+
+    #[test]
+    fn backend_env_example_contains_telegram_connector_variables() {
+        let env_example = std::fs::read_to_string(".env.example")
+            .expect(".env.example should exist");
+
+        for expected_key in [
+            "TELEGRAM_ENABLED",
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_ALLOWLIST_CHAT_IDS",
+            "TELEGRAM_CALLBACK_MODE",
+            "TELEGRAM_WEBHOOK_BASE_URL",
+        ] {
+            assert!(
+                env_example.contains(expected_key),
+                ".env.example should contain {expected_key}"
+            );
+        }
+    }
+
+    #[test]
+    fn readme_mentions_telegram_connector_setup() {
+        let readme =
+            std::fs::read_to_string("../README.md").expect("README should exist");
+
+        assert!(
+            readme.contains("Telegram"),
+            "README should mention Telegram connector setup"
+        );
+        assert!(
+            readme.contains("TELEGRAM_BOT_TOKEN"),
+            "README should document Telegram bot token configuration"
+        );
     }
 
     #[tokio::test]

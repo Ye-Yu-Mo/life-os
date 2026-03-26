@@ -9,6 +9,10 @@
 * 后端保存 `raw_logs`
 * 查看 Raw Logs 列表和详情
 
+当前已预留：
+
+* Telegram connector 基础骨架与配置入口
+
 ## 目录结构
 
 * `backend/`: Rust + Axum + SQLx
@@ -47,6 +51,14 @@ cp backend/.env.example backend/.env
 ```
 
 默认配置已经指向上面的本地 PostgreSQL。
+
+如果要启用 Telegram connector，额外配置：
+
+* `TELEGRAM_ENABLED=true`
+* `TELEGRAM_BOT_TOKEN=<your bot token>`
+* `TELEGRAM_ALLOWLIST_CHAT_IDS=<chat_id_1,chat_id_2>`
+* `TELEGRAM_CALLBACK_MODE=polling` 或 `webhook`
+* `TELEGRAM_WEBHOOK_BASE_URL=https://your-domain.example` 仅在 `webhook` 模式下需要
 
 ## 3. 启动后端
 

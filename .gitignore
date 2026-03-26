@@ -21,3 +21,4 @@ target
 #.idea/
 *.md
 .env
+tmp.jsx
