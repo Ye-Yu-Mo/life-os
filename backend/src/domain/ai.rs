@@ -57,6 +57,22 @@ pub struct AiDecisionInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiActionPlanKind {
+    ApplyMutation,
+    QueryOnly,
+    SuggestOnly,
+    Clarify,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiActionPlan {
+    pub kind: AiActionPlanKind,
+    pub module: String,
+    pub action_count: usize,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiToolKind {
     FoodCategory,
     BillCategory,
@@ -87,6 +103,7 @@ pub struct AiDecisionOutput {
     pub decision_type: String,
     pub module: String,
     pub action_count: usize,
+    pub action_plan: AiActionPlan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,9 +141,9 @@ pub struct AiRunResult {
 #[cfg(test)]
 mod tests {
     use crate::domain::ai::{
-        AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
-        AiToolInput, AiToolKind, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput,
-        AiRunContext, AiRunRecord, AiRunResult,
+        AiActionPlan, AiActionPlanKind, AiDecisionInput, AiDecisionOutput, AiExecutionOutcome,
+        AiExecutionStatus, AiIntent, AiToolInput, AiToolKind, AiToolOutput,
+        AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
     };
 
     #[test]
@@ -183,6 +200,12 @@ mod tests {
                     decision_type: "apply_mutation".to_string(),
                     module: "routine".to_string(),
                     action_count: 1,
+                    action_plan: AiActionPlan {
+                        kind: AiActionPlanKind::ApplyMutation,
+                        module: "routine".to_string(),
+                        action_count: 1,
+                        summary: "write one routine record".to_string(),
+                    },
                 },
             },
         };
@@ -264,6 +287,12 @@ mod tests {
             decision_type: "query_only".to_string(),
             module: "ledger".to_string(),
             action_count: 1,
+            action_plan: AiActionPlan {
+                kind: AiActionPlanKind::QueryOnly,
+                module: "ledger".to_string(),
+                action_count: 1,
+                summary: "read current month expenses".to_string(),
+            },
         };
 
         assert_eq!(decision.decision_type, "query_only");
@@ -294,5 +323,58 @@ mod tests {
         assert_eq!(output.kind, AiToolKind::BillCategory);
         assert_eq!(output.normalized_value, "food.drink");
         assert_eq!(output.confidence, 94);
+    }
+
+    #[test]
+    fn action_plan_supports_all_supported_execution_kinds() {
+        let plans = [
+            AiActionPlan {
+                kind: AiActionPlanKind::ApplyMutation,
+                module: "diet".to_string(),
+                action_count: 1,
+                summary: "write one meal log".to_string(),
+            },
+            AiActionPlan {
+                kind: AiActionPlanKind::QueryOnly,
+                module: "ledger".to_string(),
+                action_count: 0,
+                summary: "read current month expenses".to_string(),
+            },
+            AiActionPlan {
+                kind: AiActionPlanKind::SuggestOnly,
+                module: "inventory".to_string(),
+                action_count: 0,
+                summary: "suggest dinner options".to_string(),
+            },
+            AiActionPlan {
+                kind: AiActionPlanKind::Clarify,
+                module: "general".to_string(),
+                action_count: 0,
+                summary: "ask user to clarify target record".to_string(),
+            },
+        ];
+
+        assert_eq!(plans[0].kind, AiActionPlanKind::ApplyMutation);
+        assert_eq!(plans[1].kind, AiActionPlanKind::QueryOnly);
+        assert_eq!(plans[2].kind, AiActionPlanKind::SuggestOnly);
+        assert_eq!(plans[3].kind, AiActionPlanKind::Clarify);
+    }
+
+    #[test]
+    fn decision_output_can_embed_action_plan_for_executor_and_ui() {
+        let output = AiDecisionOutput {
+            decision_type: "apply_mutation".to_string(),
+            module: "diet".to_string(),
+            action_count: 1,
+            action_plan: AiActionPlan {
+                kind: AiActionPlanKind::ApplyMutation,
+                module: "diet".to_string(),
+                action_count: 1,
+                summary: "create one meal record".to_string(),
+            },
+        };
+
+        assert_eq!(output.action_plan.kind, AiActionPlanKind::ApplyMutation);
+        assert_eq!(output.action_plan.summary, "create one meal record");
     }
 }

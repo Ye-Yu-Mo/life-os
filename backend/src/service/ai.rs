@@ -5,9 +5,9 @@ use serde_json::Value;
 use toon_format::{decode_default, encode_default};
 
 use crate::domain::ai::{
-    AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
-    AiToolInput, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput, AiRunContext,
-    AiRunRecord, AiRunResult, ValidationOutcome,
+    AiActionPlan, AiActionPlanKind, AiDecisionInput, AiDecisionOutput, AiExecutionOutcome,
+    AiExecutionStatus, AiIntent, AiToolInput, AiToolOutput, AiUnderstandingInput,
+    AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult, ValidationOutcome,
 };
 pub use crate::config::ModelPayloadEncoding;
 use crate::error::AppError;
@@ -61,6 +61,15 @@ pub trait AiExecutor: Send + Sync {
 
 pub trait AiExecutionOrchestrator {
     fn runner_name(&self) -> &'static str;
+}
+
+#[async_trait]
+pub trait AiExecutionDispatcher: Send + Sync {
+    async fn execute_plan(
+        &self,
+        plan: AiActionPlan,
+        context: AiRunContext,
+    ) -> Result<AiExecutionOutcome, AppError>;
 }
 
 pub fn encode_model_payload(
@@ -336,6 +345,9 @@ pub struct FakeAiToolProvider {
     response: StoredResult<AiToolOutput>,
 }
 
+#[derive(Default)]
+pub struct FakeAiExecutor;
+
 enum StoredResult<T> {
     Ready(Result<T, AppError>),
 }
@@ -365,6 +377,37 @@ impl FakeAiToolProvider {
         Self {
             response: StoredResult::Ready(Err(error)),
         }
+    }
+}
+
+#[async_trait]
+impl AiExecutionDispatcher for FakeAiExecutor {
+    async fn execute_plan(
+        &self,
+        plan: AiActionPlan,
+        _context: AiRunContext,
+    ) -> Result<AiExecutionOutcome, AppError> {
+        let intent = match plan.kind {
+            AiActionPlanKind::ApplyMutation => AiIntent::Record,
+            AiActionPlanKind::QueryOnly => AiIntent::Query,
+            AiActionPlanKind::SuggestOnly => AiIntent::Suggest,
+            AiActionPlanKind::Clarify => AiIntent::Chat,
+        };
+
+        Ok(AiExecutionOutcome::Applied {
+            intent,
+            decision: AiDecisionOutput {
+                decision_type: match plan.kind {
+                    AiActionPlanKind::ApplyMutation => "apply_mutation".to_string(),
+                    AiActionPlanKind::QueryOnly => "query_only".to_string(),
+                    AiActionPlanKind::SuggestOnly => "suggest_only".to_string(),
+                    AiActionPlanKind::Clarify => "clarify".to_string(),
+                },
+                module: plan.module.clone(),
+                action_count: plan.action_count,
+                action_plan: plan,
+            },
+        })
     }
 }
 
@@ -476,9 +519,10 @@ mod tests {
     use async_trait::async_trait;
 
     use crate::domain::ai::{
-        AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
-        AiToolInput, AiToolKind, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput,
-        AiRunContext, AiRunRecord, AiRunResult, ValidationOutcome,
+        AiActionPlan, AiActionPlanKind, AiDecisionInput, AiDecisionOutput, AiExecutionOutcome,
+        AiExecutionStatus, AiIntent, AiToolInput, AiToolKind, AiToolOutput,
+        AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
+        ValidationOutcome,
     };
     use crate::service::ai::{
         decode_model_payload, encode_model_payload, retry_decision_validation,
@@ -487,9 +531,9 @@ mod tests {
     };
     use crate::error::AppError;
     use crate::service::ai::{
-        AiDecisionEngine, AiDecisionProvider, AiExecutor, AiRunner, AiUnderstander,
-        AiToolProvider, AiUnderstandingProvider, AiValidator, FakeAiDecisionEngine,
-        FakeAiToolProvider, FakeAiUnderstander,
+        AiDecisionEngine, AiDecisionProvider, AiExecutionDispatcher, AiExecutor, AiRunner,
+        AiUnderstander, AiToolProvider, AiUnderstandingProvider, AiValidator,
+        FakeAiDecisionEngine, FakeAiExecutor, FakeAiToolProvider, FakeAiUnderstander,
     };
 
     #[derive(Default)]
@@ -537,6 +581,12 @@ mod tests {
                 decision_type: "apply_mutation".to_string(),
                 module: "routine".to_string(),
                 action_count: 1,
+                action_plan: AiActionPlan {
+                    kind: AiActionPlanKind::ApplyMutation,
+                    module: "routine".to_string(),
+                    action_count: 1,
+                    summary: "write one routine record".to_string(),
+                },
             })
         }
     }
@@ -820,6 +870,12 @@ mod tests {
             decision_type: "query_only".to_string(),
             module: "ledger".to_string(),
             action_count: 1,
+            action_plan: AiActionPlan {
+                kind: AiActionPlanKind::QueryOnly,
+                module: "ledger".to_string(),
+                action_count: 1,
+                summary: "read current month expenses".to_string(),
+            },
         });
 
         let result = engine
@@ -848,6 +904,12 @@ mod tests {
             decision_type: "apply_mutation".to_string(),
             module: "diet".to_string(),
             action_count: 2,
+            action_plan: AiActionPlan {
+                kind: AiActionPlanKind::ApplyMutation,
+                module: "diet".to_string(),
+                action_count: 2,
+                summary: "update one meal record".to_string(),
+            },
         });
 
         let result = engine
@@ -1102,6 +1164,12 @@ mod tests {
             decision_type: "".to_string(),
             module: "diet".to_string(),
             action_count: 1,
+            action_plan: AiActionPlan {
+                kind: AiActionPlanKind::ApplyMutation,
+                module: "diet".to_string(),
+                action_count: 1,
+                summary: "invalid empty decision type".to_string(),
+            },
         })
         .expect_err("missing decision_type should fail");
 
@@ -1218,6 +1286,12 @@ mod tests {
                     decision_type: "".to_string(),
                     module: "diet".to_string(),
                     action_count: 1,
+                    action_plan: AiActionPlan {
+                        kind: AiActionPlanKind::ApplyMutation,
+                        module: "diet".to_string(),
+                        action_count: 1,
+                        summary: "invalid decision output".to_string(),
+                    },
                 })
             }
         }
@@ -1252,6 +1326,98 @@ mod tests {
                 assert!(message.contains("decision_type"));
             }
             other => panic!("expected retry exhausted error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn fake_executor_applies_safe_mutation_plan_without_domain_write_logic() {
+        let executor = FakeAiExecutor;
+
+        let result = executor
+            .execute_plan(
+                AiActionPlan {
+                    kind: AiActionPlanKind::ApplyMutation,
+                    module: "diet".to_string(),
+                    action_count: 1,
+                    summary: "create one meal record".to_string(),
+                },
+                AiRunContext {
+                    raw_log_id: "log-1".to_string(),
+                    user_id: "user-1".to_string(),
+                    message_text: "晚饭吃了鸡胸肉".to_string(),
+                    encoding: "json".to_string(),
+                },
+            )
+            .await
+            .expect("execution should succeed");
+
+        match result {
+            AiExecutionOutcome::Applied { decision, .. } => {
+                assert_eq!(decision.action_plan.kind, AiActionPlanKind::ApplyMutation);
+                assert_eq!(decision.action_plan.summary, "create one meal record");
+            }
+            other => panic!("expected applied outcome, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn fake_executor_supports_query_only_and_returns_non_mutating_result() {
+        let executor = FakeAiExecutor;
+
+        let result = executor
+            .execute_plan(
+                AiActionPlan {
+                    kind: AiActionPlanKind::QueryOnly,
+                    module: "ledger".to_string(),
+                    action_count: 0,
+                    summary: "read current month expenses".to_string(),
+                },
+                AiRunContext {
+                    raw_log_id: "log-2".to_string(),
+                    user_id: "user-1".to_string(),
+                    message_text: "这个月花了多少".to_string(),
+                    encoding: "json".to_string(),
+                },
+            )
+            .await
+            .expect("execution should succeed");
+
+        match result {
+            AiExecutionOutcome::Applied { decision, .. } => {
+                assert_eq!(decision.action_plan.kind, AiActionPlanKind::QueryOnly);
+                assert_eq!(decision.action_plan.action_count, 0);
+            }
+            other => panic!("expected applied outcome, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn fake_executor_supports_clarify_without_mutation_dispatch() {
+        let executor = FakeAiExecutor;
+
+        let result = executor
+            .execute_plan(
+                AiActionPlan {
+                    kind: AiActionPlanKind::Clarify,
+                    module: "general".to_string(),
+                    action_count: 0,
+                    summary: "ask which record should be updated".to_string(),
+                },
+                AiRunContext {
+                    raw_log_id: "log-3".to_string(),
+                    user_id: "user-1".to_string(),
+                    message_text: "把刚才那条改掉".to_string(),
+                    encoding: "json".to_string(),
+                },
+            )
+            .await
+            .expect("execution should succeed");
+
+        match result {
+            AiExecutionOutcome::Applied { decision, .. } => {
+                assert_eq!(decision.action_plan.kind, AiActionPlanKind::Clarify);
+            }
+            other => panic!("expected applied outcome, got {other:?}"),
         }
     }
 }
