@@ -16,6 +16,40 @@ pub enum AiIntent {
     Chat,
 }
 
+impl AiIntent {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Record => "record",
+            Self::Update => "update",
+            Self::Query => "query",
+            Self::Suggest => "suggest",
+            Self::Command => "command",
+            Self::Chat => "chat",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiUnderstandingInput {
+    pub raw_log_id: String,
+    pub user_id: String,
+    pub message_text: String,
+    pub channel: String,
+    pub context_date: Option<String>,
+    pub timezone: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiUnderstandingOutput {
+    pub intent: AiIntent,
+    pub target_module: String,
+    pub references: Vec<String>,
+    pub extracted_entities: Vec<String>,
+    pub confidence: u8,
+    pub needs_clarification: bool,
+    pub clarification_question: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiExecutionStatus {
     Completed,
@@ -64,8 +98,8 @@ pub struct AiRunResult {
 #[cfg(test)]
 mod tests {
     use crate::domain::ai::{
-        AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent, AiRunContext,
-        AiRunRecord, AiRunResult,
+        AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
+        AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
     };
 
     #[test]
@@ -134,5 +168,47 @@ mod tests {
             }
             other => panic!("expected applied outcome, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn understanding_output_supports_all_supported_intents() {
+        let expectations = [
+            (AiIntent::Record, "record"),
+            (AiIntent::Update, "update"),
+            (AiIntent::Query, "query"),
+            (AiIntent::Suggest, "suggest"),
+            (AiIntent::Command, "command"),
+            (AiIntent::Chat, "chat"),
+        ];
+
+        for (intent, expected_label) in expectations {
+            let output = AiUnderstandingOutput {
+                intent,
+                target_module: "general".to_string(),
+                references: vec![],
+                extracted_entities: vec![],
+                confidence: 95,
+                needs_clarification: false,
+                clarification_question: None,
+            };
+
+            assert_eq!(output.intent.as_str(), expected_label);
+        }
+    }
+
+    #[test]
+    fn understanding_input_contains_message_and_context_fields() {
+        let input = AiUnderstandingInput {
+            raw_log_id: "log-1".to_string(),
+            user_id: "user-1".to_string(),
+            message_text: "把刚才那条晚饭改成午饭".to_string(),
+            channel: "telegram".to_string(),
+            context_date: Some("2026-03-26".to_string()),
+            timezone: Some("Asia/Shanghai".to_string()),
+        };
+
+        assert_eq!(input.raw_log_id, "log-1");
+        assert_eq!(input.channel, "telegram");
+        assert_eq!(input.context_date.as_deref(), Some("2026-03-26"));
     }
 }

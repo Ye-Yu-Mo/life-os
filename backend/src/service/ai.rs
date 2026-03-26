@@ -3,10 +3,19 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::domain::ai::{
-    AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent, AiRunContext,
-    AiRunRecord, AiRunResult, ValidationOutcome,
+    AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
+    AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
+    ValidationOutcome,
 };
 use crate::error::AppError;
+
+#[async_trait]
+pub trait AiUnderstandingProvider: Send + Sync {
+    async fn understand_input(
+        &self,
+        input: AiUnderstandingInput,
+    ) -> Result<AiUnderstandingOutput, AppError>;
+}
 
 #[async_trait]
 pub trait AiUnderstander: Send + Sync {
@@ -39,6 +48,59 @@ pub trait AiExecutor: Send + Sync {
 
 pub trait AiExecutionOrchestrator {
     fn runner_name(&self) -> &'static str;
+}
+
+pub struct FakeAiUnderstander {
+    response: MutexLike<Result<AiUnderstandingOutput, AppError>>,
+}
+
+enum MutexLike<T> {
+    Ready(T),
+}
+
+impl FakeAiUnderstander {
+    pub fn with_response(response: AiUnderstandingOutput) -> Self {
+        Self {
+            response: MutexLike::Ready(Ok(response)),
+        }
+    }
+
+    pub fn with_error(error: AppError) -> Self {
+        Self {
+            response: MutexLike::Ready(Err(error)),
+        }
+    }
+}
+
+#[async_trait]
+impl AiUnderstandingProvider for FakeAiUnderstander {
+    async fn understand_input(
+        &self,
+        _input: AiUnderstandingInput,
+    ) -> Result<AiUnderstandingOutput, AppError> {
+        match &self.response {
+            MutexLike::Ready(Ok(output)) => Ok(output.clone()),
+            MutexLike::Ready(Err(AppError::Config(message))) => {
+                Err(AppError::Config(message.clone()))
+            }
+            MutexLike::Ready(Err(AppError::Validation(message))) => {
+                Err(AppError::Validation(message.clone()))
+            }
+            MutexLike::Ready(Err(AppError::NotFound(message))) => {
+                Err(AppError::NotFound(message.clone()))
+            }
+            MutexLike::Ready(Err(AppError::InternalState(message))) => {
+                Err(AppError::InternalState(message.clone()))
+            }
+            MutexLike::Ready(Err(AppError::Internal)) => Err(AppError::Internal),
+            MutexLike::Ready(Err(AppError::Database(_))) => {
+                Err(AppError::InternalState("database error not supported in fake".to_string()))
+            }
+            MutexLike::Ready(Err(AppError::Migration(_))) => {
+                Err(AppError::InternalState("migration error not supported in fake".to_string()))
+            }
+        }
+    }
 }
 
 pub struct AiRunner {
@@ -116,12 +178,14 @@ mod tests {
     use async_trait::async_trait;
 
     use crate::domain::ai::{
-        AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent, AiRunContext,
-        AiRunRecord, AiRunResult, ValidationOutcome,
+        AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
+        AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
+        ValidationOutcome,
     };
     use crate::error::AppError;
     use crate::service::ai::{
-        AiDecisionEngine, AiExecutor, AiRunner, AiUnderstander, AiValidator,
+        AiDecisionEngine, AiExecutor, AiRunner, AiUnderstander, AiUnderstandingProvider,
+        AiValidator, FakeAiUnderstander,
     };
 
     #[derive(Default)]
@@ -357,6 +421,92 @@ mod tests {
                 assert!(reason.contains("missing required field"));
             }
             other => panic!("expected rejected run result, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn fake_understander_returns_record_understanding_output() {
+        let understander = FakeAiUnderstander::with_response(AiUnderstandingOutput {
+            intent: AiIntent::Record,
+            target_module: "diet".to_string(),
+            references: vec![],
+            extracted_entities: vec!["meal".to_string()],
+            confidence: 91,
+            needs_clarification: false,
+            clarification_question: None,
+        });
+
+        let result = understander
+            .understand_input(AiUnderstandingInput {
+                raw_log_id: "log-1".to_string(),
+                user_id: "user-1".to_string(),
+                message_text: "晚饭吃了鸡胸肉".to_string(),
+                channel: "web".to_string(),
+                context_date: Some("2026-03-26".to_string()),
+                timezone: Some("Asia/Shanghai".to_string()),
+            })
+            .await
+            .expect("understanding should succeed");
+
+        assert_eq!(result.intent, AiIntent::Record);
+        assert_eq!(result.target_module, "diet");
+        assert_eq!(result.extracted_entities, vec!["meal".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn fake_understander_can_return_update_and_clarification_result() {
+        let understander = FakeAiUnderstander::with_response(AiUnderstandingOutput {
+            intent: AiIntent::Update,
+            target_module: "diet".to_string(),
+            references: vec!["last_meal".to_string()],
+            extracted_entities: vec!["meal_type:lunch".to_string()],
+            confidence: 72,
+            needs_clarification: true,
+            clarification_question: Some("你是要把最近一餐改成午饭吗？".to_string()),
+        });
+
+        let result = understander
+            .understand_input(AiUnderstandingInput {
+                raw_log_id: "log-2".to_string(),
+                user_id: "user-1".to_string(),
+                message_text: "把刚才那条晚饭改成午饭".to_string(),
+                channel: "telegram".to_string(),
+                context_date: Some("2026-03-26".to_string()),
+                timezone: Some("Asia/Shanghai".to_string()),
+            })
+            .await
+            .expect("understanding should succeed");
+
+        assert_eq!(result.intent, AiIntent::Update);
+        assert!(result.needs_clarification);
+        assert_eq!(
+            result.clarification_question.as_deref(),
+            Some("你是要把最近一餐改成午饭吗？")
+        );
+    }
+
+    #[tokio::test]
+    async fn fake_understander_surface_provider_failure_without_hiding_it() {
+        let understander =
+            FakeAiUnderstander::with_error(AppError::InternalState("provider unavailable".to_string()));
+
+        let error = understander
+            .understand_input(AiUnderstandingInput {
+                raw_log_id: "log-3".to_string(),
+                user_id: "user-1".to_string(),
+                message_text: "最近我作息怎么样".to_string(),
+                channel: "web".to_string(),
+                context_date: None,
+                timezone: None,
+            })
+            .await
+            .expect_err("understanding should fail");
+
+        match error {
+            AppError::InternalState(message) => {
+                assert!(message.contains("provider unavailable"));
+            }
+            other => panic!("expected internal state error, got {other:?}"),
         }
     }
 }
