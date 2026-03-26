@@ -69,24 +69,34 @@ pub fn encode_model_payload(
 ) -> Result<String, AppError> {
     match encoding {
         ModelPayloadEncoding::Json => {
-            serde_json::from_str::<Value>(payload)
-                .map_err(|error| AppError::Validation(format!("invalid json payload: {error}")))?;
+            serde_json::from_str::<Value>(payload).map_err(|error| AppError::AiDecode {
+                stage: "encode",
+                encoding: "json",
+                message: format!("invalid json payload: {error}"),
+            })?;
             Ok(payload.to_string())
         }
         ModelPayloadEncoding::Toon => {
             let trimmed = payload.trim();
             if trimmed.is_empty() {
-                return Err(AppError::Validation(
-                    "toon payload cannot be empty".to_string(),
-                ));
+                return Err(AppError::AiDecode {
+                    stage: "encode",
+                    encoding: "toon",
+                    message: "toon payload cannot be empty".to_string(),
+                });
             }
 
             if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-                encode_default(&value)
-                    .map_err(|error| AppError::Validation(format!("invalid toon payload: {error}")))
+                encode_default(&value).map_err(|error| AppError::AiDecode {
+                    stage: "encode",
+                    encoding: "toon",
+                    message: format!("invalid toon payload: {error}"),
+                })
             } else {
-                decode_default::<Value>(trimmed).map_err(|error| {
-                    AppError::Validation(format!("invalid toon payload: {error}"))
+                decode_default::<Value>(trimmed).map_err(|error| AppError::AiDecode {
+                    stage: "encode",
+                    encoding: "toon",
+                    message: format!("invalid toon payload: {error}"),
                 })?;
                 Ok(trimmed.to_string())
             }
@@ -100,22 +110,199 @@ pub fn decode_model_payload(
 ) -> Result<String, AppError> {
     match encoding {
         ModelPayloadEncoding::Json => {
-            serde_json::from_str::<Value>(payload)
-                .map_err(|error| AppError::Validation(format!("invalid json payload: {error}")))?;
+            serde_json::from_str::<Value>(payload).map_err(|error| AppError::AiDecode {
+                stage: "decode",
+                encoding: "json",
+                message: format!("invalid json payload: {error}"),
+            })?;
             Ok(payload.to_string())
         }
         ModelPayloadEncoding::Toon => {
             let trimmed = payload.trim();
             if trimmed.is_empty() {
-                return Err(AppError::Validation(
-                    "toon payload cannot be empty".to_string(),
-                ));
+                return Err(AppError::AiDecode {
+                    stage: "decode",
+                    encoding: "toon",
+                    message: "toon payload cannot be empty".to_string(),
+                });
             }
 
-            decode_default::<Value>(trimmed)
-                .map_err(|error| AppError::Validation(format!("invalid toon payload: {error}")))?;
+            decode_default::<Value>(trimmed).map_err(|error| AppError::AiDecode {
+                stage: "decode",
+                encoding: "toon",
+                message: format!("invalid toon payload: {error}"),
+            })?;
             Ok(trimmed.to_string())
         }
+    }
+}
+
+pub fn validate_understanding_output(
+    output: &AiUnderstandingOutput,
+) -> Result<(), AppError> {
+    if output.target_module.trim().is_empty() {
+        return Err(AppError::AiSchema {
+            stage: "understanding",
+            schema: "AiUnderstandingOutput",
+            message: "target_module cannot be empty".to_string(),
+        });
+    }
+
+    if output.confidence > 100 {
+        return Err(AppError::AiSchema {
+            stage: "understanding",
+            schema: "AiUnderstandingOutput",
+            message: "confidence must be between 0 and 100".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+pub fn validate_decision_output(output: &AiDecisionOutput) -> Result<(), AppError> {
+    if output.decision_type.trim().is_empty() {
+        return Err(AppError::AiSchema {
+            stage: "decision",
+            schema: "AiDecisionOutput",
+            message: "decision_type cannot be empty".to_string(),
+        });
+    }
+
+    if output.module.trim().is_empty() {
+        return Err(AppError::AiSchema {
+            stage: "decision",
+            schema: "AiDecisionOutput",
+            message: "module cannot be empty".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+pub fn validate_tool_output(output: &AiToolOutput) -> Result<(), AppError> {
+    if output.normalized_value.trim().is_empty() {
+        return Err(AppError::AiSchema {
+            stage: "tool",
+            schema: "AiToolOutput",
+            message: "normalized_value cannot be empty".to_string(),
+        });
+    }
+
+    if output.cache_key.trim().is_empty() {
+        return Err(AppError::AiSchema {
+            stage: "tool",
+            schema: "AiToolOutput",
+            message: "cache_key cannot be empty".to_string(),
+        });
+    }
+
+    if output.confidence > 100 {
+        return Err(AppError::AiSchema {
+            stage: "tool",
+            schema: "AiToolOutput",
+            message: "confidence must be between 0 and 100".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+pub async fn retry_understanding_validation(
+    provider: &dyn AiUnderstandingProvider,
+    input: AiUnderstandingInput,
+    max_attempts: usize,
+) -> Result<AiUnderstandingOutput, AppError> {
+    for attempt in 1..=max_attempts {
+        let output = provider.understand_input(input.clone()).await?;
+        match validate_understanding_output(&output) {
+            Ok(()) => return Ok(output),
+            Err(error) => {
+                if attempt == max_attempts {
+                    return Err(AppError::AiRetryExhausted {
+                        stage: "understanding",
+                        attempts: max_attempts,
+                        message: error.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Err(AppError::AiRetryExhausted {
+        stage: "understanding",
+        attempts: max_attempts,
+        message: "understanding validation exhausted".to_string(),
+    })
+}
+
+pub async fn retry_decision_validation(
+    provider: &dyn AiDecisionProvider,
+    input: AiDecisionInput,
+    max_attempts: usize,
+) -> Result<AiDecisionOutput, AppError> {
+    for attempt in 1..=max_attempts {
+        let output = provider.decide_input(input.clone()).await?;
+        match validate_decision_output(&output) {
+            Ok(()) => return Ok(output),
+            Err(error) => {
+                if attempt == max_attempts {
+                    return Err(AppError::AiRetryExhausted {
+                        stage: "decision",
+                        attempts: max_attempts,
+                        message: error.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Err(AppError::AiRetryExhausted {
+        stage: "decision",
+        attempts: max_attempts,
+        message: "decision validation exhausted".to_string(),
+    })
+}
+
+fn clone_app_error(error: &AppError) -> AppError {
+    match error {
+        AppError::Config(message) => AppError::Config(message.clone()),
+        AppError::Validation(message) => AppError::Validation(message.clone()),
+        AppError::AiDecode {
+            stage,
+            encoding,
+            message,
+        } => AppError::AiDecode {
+            stage,
+            encoding,
+            message: message.clone(),
+        },
+        AppError::AiSchema {
+            stage,
+            schema,
+            message,
+        } => AppError::AiSchema {
+            stage,
+            schema,
+            message: message.clone(),
+        },
+        AppError::AiRetryExhausted {
+            stage,
+            attempts,
+            message,
+        } => AppError::AiRetryExhausted {
+            stage,
+            attempts: *attempts,
+            message: message.clone(),
+        },
+        AppError::NotFound(message) => AppError::NotFound(message.clone()),
+        AppError::InternalState(message) => AppError::InternalState(message.clone()),
+        AppError::Database(_) => {
+            AppError::InternalState("database error not supported in fake".to_string())
+        }
+        AppError::Migration(_) => {
+            AppError::InternalState("migration error not supported in fake".to_string())
+        }
+        AppError::Internal => AppError::Internal,
     }
 }
 
@@ -189,25 +376,7 @@ impl AiUnderstandingProvider for FakeAiUnderstander {
     ) -> Result<AiUnderstandingOutput, AppError> {
         match &self.response {
             MutexLike::Ready(Ok(output)) => Ok(output.clone()),
-            MutexLike::Ready(Err(AppError::Config(message))) => {
-                Err(AppError::Config(message.clone()))
-            }
-            MutexLike::Ready(Err(AppError::Validation(message))) => {
-                Err(AppError::Validation(message.clone()))
-            }
-            MutexLike::Ready(Err(AppError::NotFound(message))) => {
-                Err(AppError::NotFound(message.clone()))
-            }
-            MutexLike::Ready(Err(AppError::InternalState(message))) => {
-                Err(AppError::InternalState(message.clone()))
-            }
-            MutexLike::Ready(Err(AppError::Internal)) => Err(AppError::Internal),
-            MutexLike::Ready(Err(AppError::Database(_))) => {
-                Err(AppError::InternalState("database error not supported in fake".to_string()))
-            }
-            MutexLike::Ready(Err(AppError::Migration(_))) => {
-                Err(AppError::InternalState("migration error not supported in fake".to_string()))
-            }
+            MutexLike::Ready(Err(error)) => Err(clone_app_error(error)),
         }
     }
 }
@@ -217,25 +386,7 @@ impl AiDecisionProvider for FakeAiDecisionEngine {
     async fn decide_input(&self, _input: AiDecisionInput) -> Result<AiDecisionOutput, AppError> {
         match &self.response {
             StoredResult::Ready(Ok(output)) => Ok(output.clone()),
-            StoredResult::Ready(Err(AppError::Config(message))) => {
-                Err(AppError::Config(message.clone()))
-            }
-            StoredResult::Ready(Err(AppError::Validation(message))) => {
-                Err(AppError::Validation(message.clone()))
-            }
-            StoredResult::Ready(Err(AppError::NotFound(message))) => {
-                Err(AppError::NotFound(message.clone()))
-            }
-            StoredResult::Ready(Err(AppError::InternalState(message))) => {
-                Err(AppError::InternalState(message.clone()))
-            }
-            StoredResult::Ready(Err(AppError::Internal)) => Err(AppError::Internal),
-            StoredResult::Ready(Err(AppError::Database(_))) => {
-                Err(AppError::InternalState("database error not supported in fake".to_string()))
-            }
-            StoredResult::Ready(Err(AppError::Migration(_))) => {
-                Err(AppError::InternalState("migration error not supported in fake".to_string()))
-            }
+            StoredResult::Ready(Err(error)) => Err(clone_app_error(error)),
         }
     }
 }
@@ -245,25 +396,7 @@ impl AiToolProvider for FakeAiToolProvider {
     async fn call(&self, _input: AiToolInput) -> Result<AiToolOutput, AppError> {
         match &self.response {
             StoredResult::Ready(Ok(output)) => Ok(output.clone()),
-            StoredResult::Ready(Err(AppError::Config(message))) => {
-                Err(AppError::Config(message.clone()))
-            }
-            StoredResult::Ready(Err(AppError::Validation(message))) => {
-                Err(AppError::Validation(message.clone()))
-            }
-            StoredResult::Ready(Err(AppError::NotFound(message))) => {
-                Err(AppError::NotFound(message.clone()))
-            }
-            StoredResult::Ready(Err(AppError::InternalState(message))) => {
-                Err(AppError::InternalState(message.clone()))
-            }
-            StoredResult::Ready(Err(AppError::Internal)) => Err(AppError::Internal),
-            StoredResult::Ready(Err(AppError::Database(_))) => {
-                Err(AppError::InternalState("database error not supported in fake".to_string()))
-            }
-            StoredResult::Ready(Err(AppError::Migration(_))) => {
-                Err(AppError::InternalState("migration error not supported in fake".to_string()))
-            }
+            StoredResult::Ready(Err(error)) => Err(clone_app_error(error)),
         }
     }
 }
@@ -347,7 +480,11 @@ mod tests {
         AiToolInput, AiToolKind, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput,
         AiRunContext, AiRunRecord, AiRunResult, ValidationOutcome,
     };
-    use crate::service::ai::{decode_model_payload, encode_model_payload, ModelPayloadEncoding};
+    use crate::service::ai::{
+        decode_model_payload, encode_model_payload, retry_decision_validation,
+        retry_understanding_validation, validate_decision_output, validate_tool_output,
+        validate_understanding_output, ModelPayloadEncoding,
+    };
     use crate::error::AppError;
     use crate::service::ai::{
         AiDecisionEngine, AiDecisionProvider, AiExecutor, AiRunner, AiUnderstander,
@@ -881,10 +1018,240 @@ mod tests {
             .expect_err("empty toon should fail");
 
         match error {
-            AppError::Validation(message) => {
+            AppError::AiDecode {
+                stage,
+                encoding,
+                message,
+            } => {
+                assert_eq!(stage, "decode");
+                assert_eq!(encoding, "toon");
                 assert!(message.contains("toon payload cannot be empty"));
             }
             other => panic!("expected validation error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_stage_returns_distinct_error_for_json_decode_failure() {
+        let error = decode_model_payload(ModelPayloadEncoding::Json, "{invalid json")
+            .expect_err("invalid json should fail");
+
+        match error {
+            AppError::AiDecode {
+                stage,
+                encoding,
+                message,
+            } => {
+                assert_eq!(stage, "decode");
+                assert_eq!(encoding, "json");
+                assert!(message.contains("invalid json payload"));
+            }
+            other => panic!("expected ai decode error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_stage_returns_distinct_error_for_toon_decode_failure() {
+        let error = decode_model_payload(ModelPayloadEncoding::Toon, "::::")
+            .expect_err("invalid toon should fail");
+
+        match error {
+            AppError::AiDecode {
+                stage,
+                encoding,
+                message,
+            } => {
+                assert_eq!(stage, "decode");
+                assert_eq!(encoding, "toon");
+                assert!(message.contains("invalid toon payload"));
+            }
+            other => panic!("expected ai decode error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn understanding_schema_validation_rejects_missing_target_module() {
+        let error = validate_understanding_output(&AiUnderstandingOutput {
+            intent: AiIntent::Record,
+            target_module: "".to_string(),
+            references: vec![],
+            extracted_entities: vec![],
+            confidence: 91,
+            needs_clarification: false,
+            clarification_question: None,
+        })
+        .expect_err("missing target module should fail");
+
+        match error {
+            AppError::AiSchema {
+                stage,
+                schema,
+                message,
+            } => {
+                assert_eq!(stage, "understanding");
+                assert_eq!(schema, "AiUnderstandingOutput");
+                assert!(message.contains("target_module"));
+            }
+            other => panic!("expected ai schema error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decision_schema_validation_rejects_missing_decision_type() {
+        let error = validate_decision_output(&AiDecisionOutput {
+            decision_type: "".to_string(),
+            module: "diet".to_string(),
+            action_count: 1,
+        })
+        .expect_err("missing decision_type should fail");
+
+        match error {
+            AppError::AiSchema {
+                stage,
+                schema,
+                message,
+            } => {
+                assert_eq!(stage, "decision");
+                assert_eq!(schema, "AiDecisionOutput");
+                assert!(message.contains("decision_type"));
+            }
+            other => panic!("expected ai schema error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_schema_validation_rejects_missing_normalized_value() {
+        let error = validate_tool_output(&AiToolOutput {
+            kind: AiToolKind::BillCategory,
+            normalized_value: "".to_string(),
+            confidence: 94,
+            cache_key: "bill:luckin".to_string(),
+        })
+        .expect_err("missing normalized_value should fail");
+
+        match error {
+            AppError::AiSchema {
+                stage,
+                schema,
+                message,
+            } => {
+                assert_eq!(stage, "tool");
+                assert_eq!(schema, "AiToolOutput");
+                assert!(message.contains("normalized_value"));
+            }
+            other => panic!("expected ai schema error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_policy_retries_understanding_schema_failure_and_then_succeeds() {
+        struct FlakyUnderstander {
+            calls: Mutex<usize>,
+        }
+
+        #[async_trait]
+        impl AiUnderstandingProvider for FlakyUnderstander {
+            async fn understand_input(
+                &self,
+                _input: AiUnderstandingInput,
+            ) -> Result<AiUnderstandingOutput, AppError> {
+                let mut calls = self.calls.lock().expect("mutex should not be poisoned");
+                *calls += 1;
+
+                if *calls == 1 {
+                    return Ok(AiUnderstandingOutput {
+                        intent: AiIntent::Record,
+                        target_module: "".to_string(),
+                        references: vec![],
+                        extracted_entities: vec![],
+                        confidence: 80,
+                        needs_clarification: false,
+                        clarification_question: None,
+                    });
+                }
+
+                Ok(AiUnderstandingOutput {
+                    intent: AiIntent::Record,
+                    target_module: "diet".to_string(),
+                    references: vec![],
+                    extracted_entities: vec!["meal".to_string()],
+                    confidence: 92,
+                    needs_clarification: false,
+                    clarification_question: None,
+                })
+            }
+        }
+
+        let provider = FlakyUnderstander {
+            calls: Mutex::new(0),
+        };
+
+        let result = retry_understanding_validation(
+            &provider,
+            AiUnderstandingInput {
+                raw_log_id: "log-1".to_string(),
+                user_id: "user-1".to_string(),
+                message_text: "晚饭吃了鸡胸肉".to_string(),
+                channel: "web".to_string(),
+                context_date: Some("2026-03-26".to_string()),
+                timezone: Some("Asia/Shanghai".to_string()),
+            },
+            2,
+        )
+        .await
+        .expect("retry should succeed");
+
+        assert_eq!(result.target_module, "diet");
+    }
+
+    #[tokio::test]
+    async fn retry_policy_returns_explainable_error_after_exhausting_retries() {
+        struct AlwaysInvalidDecision;
+
+        #[async_trait]
+        impl AiDecisionProvider for AlwaysInvalidDecision {
+            async fn decide_input(
+                &self,
+                _input: AiDecisionInput,
+            ) -> Result<AiDecisionOutput, AppError> {
+                Ok(AiDecisionOutput {
+                    decision_type: "".to_string(),
+                    module: "diet".to_string(),
+                    action_count: 1,
+                })
+            }
+        }
+
+        let error = retry_decision_validation(
+            &AlwaysInvalidDecision,
+            AiDecisionInput {
+                understanding: AiUnderstandingOutput {
+                    intent: AiIntent::Record,
+                    target_module: "diet".to_string(),
+                    references: vec![],
+                    extracted_entities: vec!["meal".to_string()],
+                    confidence: 90,
+                    needs_clarification: false,
+                    clarification_question: None,
+                },
+                state_summary: "diet state ready".to_string(),
+            },
+            2,
+        )
+        .await
+        .expect_err("retry should fail after exhausting retries");
+
+        match error {
+            AppError::AiRetryExhausted {
+                stage,
+                attempts,
+                message,
+            } => {
+                assert_eq!(stage, "decision");
+                assert_eq!(attempts, 2);
+                assert!(message.contains("decision_type"));
+            }
+            other => panic!("expected retry exhausted error, got {other:?}"),
         }
     }
 }

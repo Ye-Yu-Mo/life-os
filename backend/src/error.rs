@@ -9,6 +9,24 @@ pub enum AppError {
     Config(String),
     #[error("{0}")]
     Validation(String),
+    #[error("ai decode error at {stage} ({encoding}): {message}")]
+    AiDecode {
+        stage: &'static str,
+        encoding: &'static str,
+        message: String,
+    },
+    #[error("ai schema error at {stage} ({schema}): {message}")]
+    AiSchema {
+        stage: &'static str,
+        schema: &'static str,
+        message: String,
+    },
+    #[error("ai retry exhausted at {stage} after {attempts} attempts: {message}")]
+    AiRetryExhausted {
+        stage: &'static str,
+        attempts: usize,
+        message: String,
+    },
     #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
@@ -37,6 +55,13 @@ impl IntoResponse for AppError {
         let (status, code, message) = match self {
             Self::Config(message) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error", message),
             Self::Validation(message) => (StatusCode::BAD_REQUEST, "validation_error", message),
+            Self::AiDecode { message, .. } => (StatusCode::BAD_REQUEST, "ai_decode_error", message),
+            Self::AiSchema { message, .. } => (StatusCode::BAD_REQUEST, "ai_schema_error", message),
+            Self::AiRetryExhausted { message, .. } => (
+                StatusCode::BAD_REQUEST,
+                "ai_retry_exhausted",
+                message,
+            ),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, "not_found", message),
             Self::InternalState(message) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
