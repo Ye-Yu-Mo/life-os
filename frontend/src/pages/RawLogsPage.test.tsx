@@ -109,6 +109,7 @@ describe('RawLogsPage', () => {
       parse_status: 'pending',
       parser_version: null,
       parse_error: null,
+      ai_result: null,
       created_at: '2026-03-26T02:00:00Z',
       updated_at: '2026-03-26T02:00:00Z',
     })
@@ -123,5 +124,57 @@ describe('RawLogsPage', () => {
 
     expect(await screen.findByText(/raw log dossier/i)).toBeInTheDocument()
     expect(screen.getAllByText('今天 9:40 起床').length).toBeGreaterThan(0)
+  })
+
+  it('shows ai result diagnostics in raw log detail drawer', async () => {
+    const user = userEvent.setup()
+    mockedFetchRawLogs.mockResolvedValue([
+      {
+        id: 'log-2',
+        user_id: 'user-1',
+        raw_text: '今天起床了',
+        input_channel: 'web',
+        source_type: 'manual',
+        context_date: '2026-03-26',
+        timezone: 'Asia/Shanghai',
+        parse_status: 'needs_review',
+        parser_version: 'm3-parser',
+        parse_error: 'missing exact wake time',
+        ai_result: null,
+        created_at: '2026-03-26T02:00:00Z',
+        updated_at: '2026-03-26T02:05:00Z',
+      },
+    ])
+    mockedFetchRawLogById.mockResolvedValue({
+      id: 'log-2',
+      user_id: 'user-1',
+      raw_text: '今天起床了',
+      input_channel: 'web',
+      source_type: 'manual',
+      context_date: '2026-03-26',
+      timezone: 'Asia/Shanghai',
+      parse_status: 'needs_review',
+      parser_version: 'm3-parser',
+      parse_error: 'missing exact wake time',
+      ai_result: {
+        status: 'rejected',
+        summary: 'message needs clarification',
+        action_preview: 'hold mutation until user reply',
+        failure_reason: 'missing exact wake time',
+        clarification_question: '你是 9:40 起床，还是 10:40 起床？',
+        retry_summary: 'retry 2 stopped before execution',
+      },
+      created_at: '2026-03-26T02:00:00Z',
+      updated_at: '2026-03-26T02:05:00Z',
+    })
+
+    render(<RawLogsPage />)
+
+    await user.click(await screen.findByRole('button', { name: /open dossier/i }))
+
+    expect(await screen.findByText(/ai decision result/i)).toBeInTheDocument()
+    expect(screen.getByText(/message needs clarification/i)).toBeInTheDocument()
+    expect(screen.getByText(/retry 2 stopped before execution/i)).toBeInTheDocument()
+    expect(screen.getByText(/你是 9:40 起床，还是 10:40 起床？/i)).toBeInTheDocument()
   })
 })

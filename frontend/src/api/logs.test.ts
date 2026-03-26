@@ -93,4 +93,38 @@ describe('logs api', () => {
     expect(detail.parse_status).toBe('needs_review')
     expect(detail.parse_error).toBe('missing wake time')
   })
+
+  it('reads ai decision snapshot from raw log detail response', async () => {
+    mockedGet.mockResolvedValue({
+      data: {
+        id: 'log-2',
+        user_id: 'user-1',
+        raw_text: '今天起床了',
+        input_channel: 'web',
+        source_type: 'manual',
+        context_date: '2026-03-26',
+        timezone: 'Asia/Shanghai',
+        parse_status: 'needs_review',
+        parser_version: 'm3-parser',
+        parse_error: 'missing exact wake time',
+        created_at: '2026-03-26T02:00:00Z',
+        updated_at: '2026-03-26T02:05:00Z',
+        ai_result: {
+          status: 'rejected',
+          summary: 'message needs clarification',
+          action_preview: 'hold mutation until user reply',
+          failure_reason: 'missing exact wake time',
+          clarification_question: '你是 9:40 起床，还是 10:40 起床？',
+          retry_summary: 'retry 2 stopped before execution',
+        },
+      },
+    })
+
+    const logsApi = await import('./logs')
+    const detail = await logsApi.fetchRawLogById('log-2')
+
+    expect(detail.ai_result?.status).toBe('rejected')
+    expect(detail.ai_result?.summary).toBe('message needs clarification')
+    expect(detail.ai_result?.retry_summary).toBe('retry 2 stopped before execution')
+  })
 })

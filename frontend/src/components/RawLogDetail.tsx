@@ -49,6 +49,71 @@ export default function RawLogDetail({
             </Typography.Paragraph>
           </section>
 
+          {log.ai_result ? (
+            <section className="dossier-evidence-card">
+              <Typography.Text className="dossier-section-label">
+                AI Decision Result
+              </Typography.Text>
+              <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+                <Space wrap>
+                  <Tag color="blue">{log.ai_result.status}</Tag>
+                  <Tag>{log.parse_status}</Tag>
+                </Space>
+
+                <div>
+                  <Typography.Text className="dossier-section-label">
+                    Processing Summary
+                  </Typography.Text>
+                  <Typography.Paragraph className="raw-log-detail-text">
+                    {log.ai_result.summary}
+                  </Typography.Paragraph>
+                </div>
+
+                <div>
+                  <Typography.Text className="dossier-section-label">
+                    Action Preview
+                  </Typography.Text>
+                  <Typography.Paragraph className="raw-log-detail-text">
+                    {log.ai_result.action_preview}
+                  </Typography.Paragraph>
+                </div>
+
+                {log.ai_result.failure_reason ? (
+                  <div>
+                    <Typography.Text className="dossier-section-label">
+                      Failure Reason
+                    </Typography.Text>
+                    <Typography.Paragraph className="raw-log-detail-text">
+                      {log.ai_result.failure_reason}
+                    </Typography.Paragraph>
+                  </div>
+                ) : null}
+
+                {log.ai_result.retry_summary ? (
+                  <div>
+                    <Typography.Text className="dossier-section-label">
+                      Retry Result
+                    </Typography.Text>
+                    <Typography.Paragraph className="raw-log-detail-text">
+                      {log.ai_result.retry_summary}
+                    </Typography.Paragraph>
+                  </div>
+                ) : null}
+
+                {log.ai_result.clarification_question ? (
+                  <div>
+                    <Typography.Text className="dossier-section-label">
+                      Clarification Prompt
+                    </Typography.Text>
+                    <Typography.Paragraph className="raw-log-detail-text">
+                      {log.ai_result.clarification_question}
+                    </Typography.Paragraph>
+                  </div>
+                ) : null}
+              </Space>
+            </section>
+          ) : null}
+
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="ID">{log.id}</Descriptions.Item>
             <Descriptions.Item label="User ID">{log.user_id}</Descriptions.Item>

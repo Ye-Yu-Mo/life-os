@@ -25,6 +25,14 @@ export type RawLog = {
   parse_status: string
   parser_version?: string | null
   parse_error?: string | null
+  ai_result?: {
+    status: string
+    summary: string
+    action_preview: string
+    failure_reason?: string | null
+    clarification_question?: string | null
+    retry_summary?: string | null
+  } | null
   created_at: string
   updated_at: string
 }
