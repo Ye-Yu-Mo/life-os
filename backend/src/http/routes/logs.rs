@@ -81,7 +81,7 @@ mod tests {
 
     use super::*;
     use crate::domain::raw_logs::{CreateRawLog, InputChannel, ParseStatus, RawLog, SourceType};
-    use crate::repository::raw_logs::RawLogRepository;
+    use crate::repository::raw_logs::{RawLogRepository, UpdateRawLogParseState};
 
     #[derive(Default)]
     struct FakeRawLogRepository {
@@ -145,6 +145,15 @@ mod tests {
                 .lock()
                 .expect("mutex should not be poisoned")
                 .clone())
+        }
+
+        async fn update_parse_state(
+            &self,
+            _input: UpdateRawLogParseState,
+        ) -> Result<RawLog, AppError> {
+            Err(AppError::InternalState(
+                "not used in http tests".to_string(),
+            ))
         }
     }
 

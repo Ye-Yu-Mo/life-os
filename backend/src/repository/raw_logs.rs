@@ -3,8 +3,16 @@ use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
-use crate::domain::raw_logs::{CreateRawLog, RawLog};
+use crate::domain::raw_logs::{CreateRawLog, ParseStatus, RawLog};
 use crate::error::AppError;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateRawLogParseState {
+    pub id: String,
+    pub parse_status: ParseStatus,
+    pub parser_version: Option<String>,
+    pub parse_error: Option<String>,
+}
 
 #[async_trait]
 pub trait RawLogRepository: Send + Sync {
@@ -12,6 +20,7 @@ pub trait RawLogRepository: Send + Sync {
     async fn create_many(&self, inputs: Vec<CreateRawLog>) -> Result<Vec<RawLog>, AppError>;
     async fn list(&self) -> Result<Vec<RawLog>, AppError>;
     async fn get_by_id(&self, id: &str) -> Result<Option<RawLog>, AppError>;
+    async fn update_parse_state(&self, input: UpdateRawLogParseState) -> Result<RawLog, AppError>;
 }
 
 pub struct PgRawLogRepository {
@@ -134,6 +143,42 @@ impl RawLogRepository for PgRawLogRepository {
         .await?;
 
         record.map(TryInto::try_into).transpose()
+    }
+
+    async fn update_parse_state(&self, input: UpdateRawLogParseState) -> Result<RawLog, AppError> {
+        let record = sqlx::query_as::<_, RawLogRecord>(
+            r#"
+            UPDATE raw_logs
+            SET
+                parse_status = $2,
+                parser_version = $3,
+                parse_error = $4,
+                updated_at = NOW()
+            WHERE id = $1
+            RETURNING
+                id::text AS id,
+                user_id::text AS user_id,
+                raw_text,
+                input_channel,
+                source_type,
+                context_date::text AS context_date,
+                timezone,
+                parse_status,
+                parser_version,
+                parse_error,
+                created_at,
+                updated_at
+            "#,
+        )
+        .bind(parse_uuid(&input.id)?)
+        .bind(format_parse_status(input.parse_status))
+        .bind(input.parser_version)
+        .bind(input.parse_error)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("raw_log not found: {}", input.id)))?;
+
+        record.try_into()
     }
 }
 

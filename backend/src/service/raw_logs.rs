@@ -103,7 +103,7 @@ mod tests {
 
     use crate::domain::raw_logs::{CreateRawLog, InputChannel, ParseStatus, RawLog, SourceType};
     use crate::error::AppError;
-    use crate::repository::raw_logs::RawLogRepository;
+    use crate::repository::raw_logs::{RawLogRepository, UpdateRawLogParseState};
     use crate::service::raw_logs::RawLogService;
 
     #[derive(Default)]
@@ -162,6 +162,15 @@ mod tests {
                 .lock()
                 .expect("mutex should not be poisoned")
                 .clone())
+        }
+
+        async fn update_parse_state(
+            &self,
+            _input: UpdateRawLogParseState,
+        ) -> Result<RawLog, AppError> {
+            Err(AppError::InternalState(
+                "not used in raw log service tests".to_string(),
+            ))
         }
     }
 

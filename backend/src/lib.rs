@@ -36,7 +36,7 @@ mod tests {
     use crate::config::Config;
     use crate::domain::raw_logs::{CreateRawLog, RawLog};
     use crate::error::AppError;
-    use crate::repository::raw_logs::RawLogRepository;
+    use crate::repository::raw_logs::{RawLogRepository, UpdateRawLogParseState};
     use crate::service::raw_logs::RawLogService;
 
     struct FakeRawLogRepository;
@@ -57,6 +57,13 @@ mod tests {
 
         async fn get_by_id(&self, _id: &str) -> Result<Option<RawLog>, AppError> {
             Ok(None)
+        }
+
+        async fn update_parse_state(
+            &self,
+            _input: UpdateRawLogParseState,
+        ) -> Result<RawLog, AppError> {
+            Err(AppError::InternalState("not used in lib tests".to_string()))
         }
     }
 

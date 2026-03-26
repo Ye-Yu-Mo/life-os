@@ -11,8 +11,10 @@ use crate::domain::ai::{
     AiExecutionStatus, AiIntent, AiRunContext, AiRunRecord, AiRunResult, AiToolInput, AiToolOutput,
     AiUnderstandingInput, AiUnderstandingOutput, ValidationOutcome,
 };
+use crate::domain::raw_logs::ParseStatus;
 use crate::error::AppError;
 use crate::repository::ai_runs::{AiRunRepository, CreateAiActionPlanRecord, CreateAiRunRecord};
+use crate::repository::raw_logs::{RawLogRepository, UpdateRawLogParseState};
 
 #[async_trait]
 pub trait AiUnderstandingProvider: Send + Sync {
@@ -449,7 +451,8 @@ pub struct AiRunner {
     decision_engine: Arc<dyn AiDecisionEngine>,
     validator: Arc<dyn AiValidator>,
     executor: Arc<dyn AiExecutor>,
-    repository: Arc<dyn AiRunRepository>,
+    ai_run_repository: Arc<dyn AiRunRepository>,
+    raw_log_repository: Arc<dyn RawLogRepository>,
 }
 
 impl AiRunner {
@@ -458,14 +461,16 @@ impl AiRunner {
         decision_engine: Arc<dyn AiDecisionEngine>,
         validator: Arc<dyn AiValidator>,
         executor: Arc<dyn AiExecutor>,
-        repository: Arc<dyn AiRunRepository>,
+        ai_run_repository: Arc<dyn AiRunRepository>,
+        raw_log_repository: Arc<dyn RawLogRepository>,
     ) -> Self {
         Self {
             understander,
             decision_engine,
             validator,
             executor,
-            repository,
+            ai_run_repository,
+            raw_log_repository,
         }
     }
 
@@ -481,6 +486,12 @@ impl AiRunner {
                     AiExecutionStatus::Failed,
                     &stage_trace,
                     None,
+                    Some(error.to_string()),
+                )
+                .await?;
+                self.update_raw_log_parse_state(
+                    &context,
+                    ParseStatus::Failed,
                     Some(error.to_string()),
                 )
                 .await?;
@@ -500,6 +511,12 @@ impl AiRunner {
                     Some(error.to_string()),
                 )
                 .await?;
+                self.update_raw_log_parse_state(
+                    &context,
+                    ParseStatus::Failed,
+                    Some(error.to_string()),
+                )
+                .await?;
                 return Err(error);
             }
         };
@@ -513,6 +530,12 @@ impl AiRunner {
                     AiExecutionStatus::Failed,
                     &stage_trace,
                     Some(&decision),
+                    Some(error.to_string()),
+                )
+                .await?;
+                self.update_raw_log_parse_state(
+                    &context,
+                    ParseStatus::Failed,
                     Some(error.to_string()),
                 )
                 .await?;
@@ -538,6 +561,12 @@ impl AiRunner {
                             Some(error.to_string()),
                         )
                         .await?;
+                        self.update_raw_log_parse_state(
+                            &context,
+                            ParseStatus::Failed,
+                            Some(error.to_string()),
+                        )
+                        .await?;
                         return Err(error);
                     }
                 };
@@ -550,6 +579,8 @@ impl AiRunner {
                         Some(&decision),
                         None,
                     )
+                    .await?;
+                self.update_raw_log_parse_state(&context, ParseStatus::Parsed, None)
                     .await?;
 
                 Ok(AiRunResult {
@@ -574,6 +605,12 @@ impl AiRunner {
                         Some(reason.clone()),
                     )
                     .await?;
+                self.update_raw_log_parse_state(
+                    &context,
+                    ParseStatus::NeedsReview,
+                    Some(reason.clone()),
+                )
+                .await?;
 
                 Ok(AiRunResult {
                     record: AiRunRecord {
@@ -598,7 +635,7 @@ impl AiRunner {
         decision: Option<&AiDecisionOutput>,
         error_message: Option<String>,
     ) -> Result<String, AppError> {
-        self.repository
+        self.ai_run_repository
             .record_run(
                 CreateAiRunRecord {
                     raw_log_id: context.raw_log_id.clone(),
@@ -611,6 +648,24 @@ impl AiRunner {
                 decision.map(build_action_plan_snapshot),
             )
             .await
+    }
+
+    async fn update_raw_log_parse_state(
+        &self,
+        context: &AiRunContext,
+        parse_status: ParseStatus,
+        parse_error: Option<String>,
+    ) -> Result<(), AppError> {
+        self.raw_log_repository
+            .update_parse_state(UpdateRawLogParseState {
+                id: context.raw_log_id.clone(),
+                parse_status,
+                parser_version: Some(context.encoding.clone()),
+                parse_error,
+            })
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -664,10 +719,12 @@ mod tests {
         AiExecutionStatus, AiIntent, AiRunContext, AiRunRecord, AiRunResult, AiToolInput,
         AiToolKind, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput, ValidationOutcome,
     };
+    use crate::domain::raw_logs::{ParseStatus, RawLog};
     use crate::error::AppError;
     use crate::repository::ai_runs::{
         AiRunRepository, CreateAiActionPlanRecord, CreateAiRunRecord,
     };
+    use crate::repository::raw_logs::{RawLogRepository, UpdateRawLogParseState};
     use crate::service::ai::{
         AiDecisionEngine, AiDecisionProvider, AiExecutionDispatcher, AiExecutor, AiRunner,
         AiToolProvider, AiUnderstander, AiUnderstandingProvider, AiValidator, FakeAiDecisionEngine,
@@ -761,6 +818,11 @@ mod tests {
     }
 
     #[derive(Default)]
+    struct FakeRawLogRepository {
+        updated_states: Mutex<Vec<UpdateRawLogParseState>>,
+    }
+
+    #[derive(Default)]
     struct FakeAiRunRepository {
         created_runs: Mutex<Vec<CreateAiRunRecord>>,
         created_action_plans: Mutex<Vec<CreateAiActionPlanRecord>>,
@@ -827,10 +889,61 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl RawLogRepository for FakeRawLogRepository {
+        async fn create(
+            &self,
+            _input: crate::domain::raw_logs::CreateRawLog,
+        ) -> Result<RawLog, AppError> {
+            Err(AppError::InternalState("not used in ai tests".to_string()))
+        }
+
+        async fn create_many(
+            &self,
+            _inputs: Vec<crate::domain::raw_logs::CreateRawLog>,
+        ) -> Result<Vec<RawLog>, AppError> {
+            Err(AppError::InternalState("not used in ai tests".to_string()))
+        }
+
+        async fn list(&self) -> Result<Vec<RawLog>, AppError> {
+            Err(AppError::InternalState("not used in ai tests".to_string()))
+        }
+
+        async fn get_by_id(&self, _id: &str) -> Result<Option<RawLog>, AppError> {
+            Err(AppError::InternalState("not used in ai tests".to_string()))
+        }
+
+        async fn update_parse_state(
+            &self,
+            input: UpdateRawLogParseState,
+        ) -> Result<RawLog, AppError> {
+            self.updated_states
+                .lock()
+                .expect("mutex should not be poisoned")
+                .push(input.clone());
+
+            Ok(RawLog {
+                id: input.id,
+                user_id: "user-1".to_string(),
+                raw_text: "今天 9:40 起床".to_string(),
+                input_channel: crate::domain::raw_logs::InputChannel::Web,
+                source_type: crate::domain::raw_logs::SourceType::Manual,
+                context_date: Some("2026-03-26".to_string()),
+                timezone: Some("Asia/Shanghai".to_string()),
+                parse_status: input.parse_status,
+                parser_version: input.parser_version,
+                parse_error: input.parse_error,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            })
+        }
+    }
+
     #[tokio::test]
     async fn orchestrator_runs_understand_decide_validate_execute_in_order() {
         let trace = Arc::new(TraceLog::default());
         let repository = Arc::new(FakeAiRunRepository::default());
+        let raw_log_repository = Arc::new(FakeRawLogRepository::default());
         let runner = AiRunner::new(
             Arc::new(FakeUnderstander {
                 trace: trace.clone(),
@@ -845,6 +958,7 @@ mod tests {
                 trace: trace.clone(),
             }),
             repository.clone(),
+            raw_log_repository.clone(),
         );
 
         let result = runner
@@ -882,12 +996,21 @@ mod tests {
                 .len(),
             1
         );
+        assert_eq!(
+            raw_log_repository
+                .updated_states
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]
     async fn orchestrator_returns_single_run_record_and_outcome() {
         let trace = Arc::new(TraceLog::default());
         let repository = Arc::new(FakeAiRunRepository::default());
+        let raw_log_repository = Arc::new(FakeRawLogRepository::default());
         let runner = AiRunner::new(
             Arc::new(FakeUnderstander {
                 trace: trace.clone(),
@@ -900,6 +1023,7 @@ mod tests {
             }),
             Arc::new(FakeExecutor { trace }),
             repository.clone(),
+            raw_log_repository.clone(),
         );
 
         let result = runner
@@ -915,6 +1039,14 @@ mod tests {
         assert_eq!(result.record.raw_log_id, "log-1");
         assert_eq!(result.record.attempts, 1);
         assert_eq!(result.record.run_id, "run-db-1");
+        assert_eq!(
+            raw_log_repository
+                .updated_states
+                .lock()
+                .expect("mutex should not be poisoned")[0]
+                .parse_status,
+            ParseStatus::Parsed
+        );
 
         match result.outcome {
             AiExecutionOutcome::Applied { intent, decision } => {
@@ -951,6 +1083,7 @@ mod tests {
 
         let trace = Arc::new(TraceLog::default());
         let repository = Arc::new(FakeAiRunRepository::default());
+        let raw_log_repository = Arc::new(FakeRawLogRepository::default());
         let runner = AiRunner::new(
             Arc::new(FakeUnderstander {
                 trace: trace.clone(),
@@ -965,6 +1098,7 @@ mod tests {
                 trace: trace.clone(),
             }),
             repository.clone(),
+            raw_log_repository.clone(),
         );
 
         let result = runner
@@ -1018,12 +1152,21 @@ mod tests {
                 .len(),
             1
         );
+        assert_eq!(
+            raw_log_repository
+                .updated_states
+                .lock()
+                .expect("mutex should not be poisoned")[0]
+                .parse_status,
+            ParseStatus::NeedsReview
+        );
     }
 
     #[tokio::test]
     async fn orchestrator_surfaces_persistence_failure_when_run_snapshot_cannot_be_written() {
         let trace = Arc::new(TraceLog::default());
         let repository = Arc::new(FakeAiRunRepository::default());
+        let raw_log_repository = Arc::new(FakeRawLogRepository::default());
         repository
             .fail_on_create_run
             .lock()
@@ -1042,6 +1185,7 @@ mod tests {
             }),
             Arc::new(FakeExecutor { trace }),
             repository,
+            raw_log_repository,
         );
 
         let error = runner
@@ -1060,6 +1204,59 @@ mod tests {
             }
             other => panic!("expected internal state error, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn orchestrator_marks_raw_log_failed_when_understanding_fails() {
+        struct FailingUnderstander;
+
+        #[async_trait]
+        impl AiUnderstander for FailingUnderstander {
+            async fn understand(&self, _context: &AiRunContext) -> Result<AiIntent, AppError> {
+                Err(AppError::InternalState("provider unavailable".to_string()))
+            }
+        }
+
+        let repository = Arc::new(FakeAiRunRepository::default());
+        let raw_log_repository = Arc::new(FakeRawLogRepository::default());
+        let runner = AiRunner::new(
+            Arc::new(FailingUnderstander),
+            Arc::new(FakeDecisionEngine {
+                trace: Arc::new(TraceLog::default()),
+            }),
+            Arc::new(FakeValidator {
+                trace: Arc::new(TraceLog::default()),
+            }),
+            Arc::new(FakeExecutor {
+                trace: Arc::new(TraceLog::default()),
+            }),
+            repository,
+            raw_log_repository.clone(),
+        );
+
+        let _ = runner
+            .run(AiRunContext {
+                raw_log_id: "log-1".to_string(),
+                user_id: "user-1".to_string(),
+                message_text: "今天 9:40 起床".to_string(),
+                encoding: "json".to_string(),
+            })
+            .await;
+
+        let updates = raw_log_repository
+            .updated_states
+            .lock()
+            .expect("mutex should not be poisoned");
+
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].parse_status, ParseStatus::Failed);
+        assert!(
+            updates[0]
+                .parse_error
+                .as_deref()
+                .expect("parse error should be present")
+                .contains("provider unavailable")
+        );
     }
 
     #[tokio::test]
