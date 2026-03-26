@@ -23,8 +23,12 @@ impl RawLogService {
     }
 
     pub async fn create(&self, input: CreateRawLog) -> Result<RawLog, AppError> {
-        validate_raw_text(&input.raw_text)?;
-        validate_context_date(input.context_date.as_deref())?;
+        self.validate_input(&input)?;
+        self.repository.create(input).await
+    }
+
+    pub async fn create_connector_input(&self, input: CreateRawLog) -> Result<RawLog, AppError> {
+        self.validate_input(&input)?;
         self.repository.create(input).await
     }
 
@@ -44,16 +48,15 @@ impl RawLogService {
         }
 
         for (index, input) in inputs.iter().enumerate() {
-            validate_raw_text(&input.raw_text).map_err(|error| {
-                annotate_import_validation_error(index, error)
-            })?;
-            validate_context_date(input.context_date.as_deref()).map_err(|error| {
-                annotate_import_validation_error(index, error)
-            })?;
+            self.validate_input(input)
+                .map_err(|error| annotate_import_validation_error(index, error))?;
         }
 
         let total_count = inputs.len();
-        self.repository.create_many(inputs).await?;
+        self.repository
+            .create_many(inputs)
+            .await
+            .map_err(annotate_import_persistence_error)?;
 
         Ok(ImportRawLogsResult {
             total_count,
@@ -62,6 +65,12 @@ impl RawLogService {
             errors: vec![],
         })
     }
+
+    fn validate_input(&self, input: &CreateRawLog) -> Result<(), AppError> {
+        validate_raw_text(&input.raw_text)?;
+        validate_context_date(input.context_date.as_deref())?;
+        Ok(())
+    }
 }
 
 fn annotate_import_validation_error(index: usize, error: AppError) -> AppError {
@@ -69,6 +78,18 @@ fn annotate_import_validation_error(index: usize, error: AppError) -> AppError {
         AppError::Validation(message) => {
             AppError::Validation(format!("record {}: {}", index + 1, message))
         }
+        other => other,
+    }
+}
+
+fn annotate_import_persistence_error(error: AppError) -> AppError {
+    match error {
+        AppError::InternalState(message) => AppError::InternalState(format!(
+            "batch import failed and no records were persisted: {message}"
+        )),
+        AppError::Database(error) => AppError::InternalState(format!(
+            "batch import failed and no records were persisted: {error}"
+        )),
         other => other,
     }
 }
@@ -90,6 +111,7 @@ mod tests {
         created_inputs: Mutex<Vec<CreateRawLog>>,
         list_response: Mutex<Vec<RawLog>>,
         get_response: Mutex<Option<RawLog>>,
+        batch_error_message: Mutex<Option<String>>,
     }
 
     #[async_trait]
@@ -104,6 +126,15 @@ mod tests {
         }
 
         async fn create_many(&self, inputs: Vec<CreateRawLog>) -> Result<Vec<RawLog>, AppError> {
+            if let Some(message) = self
+                .batch_error_message
+                .lock()
+                .expect("mutex should not be poisoned")
+                .take()
+            {
+                return Err(AppError::InternalState(message));
+            }
+
             let mut created = Vec::with_capacity(inputs.len());
 
             for input in inputs {
@@ -336,6 +367,79 @@ mod tests {
                 assert!(message.contains("raw_text"));
             }
             other => panic!("expected validation error, got {other:?}"),
+        }
+
+        assert_eq!(
+            repository
+                .created_inputs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn create_connector_input_reuses_service_validation_and_persists_synced_log() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        let service = RawLogService::new(repository.clone());
+
+        let created = service
+            .create_connector_input(CreateRawLog {
+                user_id: "user-1".to_string(),
+                raw_text: "来自 Telegram 的同步消息".to_string(),
+                input_channel: InputChannel::Telegram,
+                source_type: SourceType::Synced,
+                context_date: Some("2026-03-26".to_string()),
+                timezone: Some("Asia/Shanghai".to_string()),
+            })
+            .await
+            .expect("connector input should persist");
+
+        assert_eq!(created.input_channel, InputChannel::Telegram);
+        assert_eq!(created.source_type, SourceType::Synced);
+        assert_eq!(
+            repository
+                .created_inputs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn import_explains_that_failed_batch_did_not_persist_any_records() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        repository
+            .batch_error_message
+            .lock()
+            .expect("mutex should not be poisoned")
+            .replace("simulated batch failure".to_string());
+        let service = RawLogService::new(repository.clone());
+
+        let error = service
+            .import(vec![
+                CreateRawLog {
+                    input_channel: InputChannel::Import,
+                    source_type: SourceType::Imported,
+                    ..sample_create_raw_log()
+                },
+                CreateRawLog {
+                    raw_text: "晚上跑步 35 分钟".to_string(),
+                    input_channel: InputChannel::Import,
+                    source_type: SourceType::Imported,
+                    ..sample_create_raw_log()
+                },
+            ])
+            .await
+            .expect_err("batch failure should surface");
+
+        match error {
+            AppError::InternalState(message) => {
+                assert!(message.contains("no records were persisted"));
+            }
+            other => panic!("expected internal state error, got {other:?}"),
         }
 
         assert_eq!(

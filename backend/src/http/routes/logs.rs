@@ -88,6 +88,7 @@ mod tests {
         created_inputs: std::sync::Mutex<Vec<CreateRawLog>>,
         list_response: std::sync::Mutex<Vec<RawLog>>,
         get_response: std::sync::Mutex<Option<RawLog>>,
+        batch_error_message: std::sync::Mutex<Option<String>>,
     }
 
     #[async_trait]
@@ -101,6 +102,15 @@ mod tests {
         }
 
         async fn create_many(&self, inputs: Vec<CreateRawLog>) -> Result<Vec<RawLog>, AppError> {
+            if let Some(message) = self
+                .batch_error_message
+                .lock()
+                .expect("mutex should not be poisoned")
+                .take()
+            {
+                return Err(AppError::InternalState(message));
+            }
+
             let mut created = Vec::with_capacity(inputs.len());
 
             for input in inputs {
@@ -454,9 +464,64 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn post_logs_import_returns_explainable_batch_failure_message() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        repository
+            .batch_error_message
+            .lock()
+            .expect("mutex should not be poisoned")
+            .replace("simulated batch failure".to_string());
+        let app = build_test_router(repository);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/logs/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "format": "json",
+                            "records": [
+                                {
+                                    "user_id": "550e8400-e29b-41d4-a716-446655440001",
+                                    "raw_text": "今天 9:40 起床",
+                                    "input_channel": "import",
+                                    "source_type": "imported",
+                                    "context_date": "2026-03-26",
+                                    "timezone": "Asia/Shanghai"
+                                }
+                            ]
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        let body = read_json_with_status(response, StatusCode::INTERNAL_SERVER_ERROR).await;
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .expect("error message should be string")
+                .contains("no records were persisted")
+        );
+    }
+
     async fn read_json(response: axum::response::Response) -> Value {
+        read_json_with_status(response, StatusCode::OK).await
+    }
+
+    async fn read_json_with_status(
+        response: axum::response::Response,
+        expected_status: StatusCode,
+    ) -> Value {
         let status = response.status();
-        assert_eq!(status, StatusCode::OK);
+        assert_eq!(status, expected_status);
 
         let bytes = to_bytes(response.into_body(), usize::MAX)
             .await
