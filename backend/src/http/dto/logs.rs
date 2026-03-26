@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::raw_logs::{CreateRawLog, InputChannel, RawLog, SourceType};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CreateRawLogRequest {
     pub user_id: String,
     pub raw_text: String,
@@ -12,7 +12,7 @@ pub struct CreateRawLogRequest {
     pub timezone: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RawLogResponse {
     pub id: String,
     pub user_id: String,

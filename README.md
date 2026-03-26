@@ -1,10 +1,11 @@
 # life-os
 
-`life-os` 当前目标是交付 `0.1.0`：
+`life-os` 当前开发基线是 `0.2.0`：
 
-一个可以独立运行的最小版本，支持：
+一个可以独立运行的渐进版本，当前已支持：
 
 * Web 输入自然语言
+* CLI 输入自然语言
 * 后端保存 `raw_logs`
 * 查看 Raw Logs 列表和详情
 
@@ -134,7 +135,32 @@ pnpm test
 npm run build
 ```
 
-## 8. 常见问题
+## 8. CLI 输入
+
+在 `backend/` 目录执行：
+
+```bash
+cargo run --bin logs_cli -- --user-id 550e8400-e29b-41d4-a716-446655440001 "今天 9:40 起床"
+```
+
+可选参数：
+
+* `--context-date 2026-03-26`
+* `--timezone Asia/Shanghai`
+
+CLI 默认把请求提交到：
+
+```text
+http://127.0.0.1:3000/logs
+```
+
+如果后端不是这个地址，设置：
+
+```bash
+export LIFE_OS_API_BASE_URL=http://127.0.0.1:3000
+```
+
+## 9. 常见问题
 
 ### `invalid hook call`
 
