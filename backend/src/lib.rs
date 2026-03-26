@@ -112,11 +112,46 @@ mod tests {
         assert_eq!(config.telegram.allowlist_chat_ids, vec![10001, 10002]);
         assert_eq!(
             config.telegram.callback_mode,
-            crate::config::TelegramCallbackMode::Webhook
+            crate::config::ConnectorRuntimeMode::Webhook
         );
         assert_eq!(
             config.telegram.webhook_base_url.as_deref(),
             Some("https://example.com")
+        );
+    }
+
+    #[test]
+    fn loads_reserved_connector_configs_for_feishu_and_wechat_bridge() {
+        let config = Config::from_env_map([
+            ("APP_HOST", "127.0.0.1"),
+            ("APP_PORT", "4100"),
+            ("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/life_os"),
+            ("DATABASE_MAX_CONNECTIONS", "7"),
+            ("FEISHU_ENABLED", "false"),
+            ("FEISHU_APP_ID", "cli_aabbcc"),
+            ("FEISHU_APP_SECRET", "secret-value"),
+            ("FEISHU_CALLBACK_MODE", "webhook"),
+            ("WECHAT_BRIDGE_ENABLED", "true"),
+            ("WECHAT_BRIDGE_ENDPOINT", "http://127.0.0.1:8787"),
+            ("WECHAT_BRIDGE_SHARED_SECRET", "shared-secret"),
+        ])
+        .expect("config should load");
+
+        assert!(!config.feishu.enabled);
+        assert_eq!(config.feishu.app_id.as_deref(), Some("cli_aabbcc"));
+        assert_eq!(
+            config.feishu.callback_mode,
+            crate::config::ConnectorRuntimeMode::Webhook
+        );
+
+        assert!(config.wechat_bridge.enabled);
+        assert_eq!(
+            config.wechat_bridge.endpoint.as_deref(),
+            Some("http://127.0.0.1:8787")
+        );
+        assert_eq!(
+            config.wechat_bridge.shared_secret.as_deref(),
+            Some("shared-secret")
         );
     }
 
@@ -140,6 +175,27 @@ mod tests {
     }
 
     #[test]
+    fn backend_env_example_contains_reserved_feishu_and_wechat_bridge_variables() {
+        let env_example = std::fs::read_to_string(".env.example")
+            .expect(".env.example should exist");
+
+        for expected_key in [
+            "FEISHU_ENABLED",
+            "FEISHU_APP_ID",
+            "FEISHU_APP_SECRET",
+            "FEISHU_CALLBACK_MODE",
+            "WECHAT_BRIDGE_ENABLED",
+            "WECHAT_BRIDGE_ENDPOINT",
+            "WECHAT_BRIDGE_SHARED_SECRET",
+        ] {
+            assert!(
+                env_example.contains(expected_key),
+                ".env.example should contain {expected_key}"
+            );
+        }
+    }
+
+    #[test]
     fn readme_mentions_telegram_connector_setup() {
         let readme =
             std::fs::read_to_string("../README.md").expect("README should exist");
@@ -151,6 +207,26 @@ mod tests {
         assert!(
             readme.contains("TELEGRAM_BOT_TOKEN"),
             "README should document Telegram bot token configuration"
+        );
+    }
+
+    #[test]
+    fn readme_mentions_reserved_feishu_and_wechat_bridge_connectors() {
+        let readme =
+            std::fs::read_to_string("../README.md").expect("README should exist");
+
+        assert!(readme.contains("Feishu"), "README should mention Feishu connector");
+        assert!(
+            readme.contains("WeChat Bridge"),
+            "README should mention WeChat Bridge reservation"
+        );
+        assert!(
+            readme.contains("FEISHU_APP_ID"),
+            "README should mention Feishu config"
+        );
+        assert!(
+            readme.contains("WECHAT_BRIDGE_ENDPOINT"),
+            "README should mention WeChat Bridge config"
         );
     }
 

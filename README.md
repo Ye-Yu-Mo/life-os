@@ -12,6 +12,8 @@
 当前已预留：
 
 * Telegram connector 基础骨架与配置入口
+* Feishu connector 配置与模块预留位
+* WeChat Bridge 配置与模块预留位
 
 ## 目录结构
 
@@ -59,6 +61,19 @@ cp backend/.env.example backend/.env
 * `TELEGRAM_ALLOWLIST_CHAT_IDS=<chat_id_1,chat_id_2>`
 * `TELEGRAM_CALLBACK_MODE=polling` 或 `webhook`
 * `TELEGRAM_WEBHOOK_BASE_URL=https://your-domain.example` 仅在 `webhook` 模式下需要
+
+Feishu connector 当前只预留配置入口与模块边界，尚未实现 runtime。预留配置：
+
+* `FEISHU_ENABLED=false`
+* `FEISHU_APP_ID=<your app id>`
+* `FEISHU_APP_SECRET=<your app secret>`
+* `FEISHU_CALLBACK_MODE=webhook`
+
+WeChat Bridge 当前只预留 bridge 配置入口与模块边界，尚未实现 runtime。预留配置：
+
+* `WECHAT_BRIDGE_ENABLED=false`
+* `WECHAT_BRIDGE_ENDPOINT=http://127.0.0.1:8787`
+* `WECHAT_BRIDGE_SHARED_SECRET=<shared secret>`
 
 ## 3. 启动后端
 

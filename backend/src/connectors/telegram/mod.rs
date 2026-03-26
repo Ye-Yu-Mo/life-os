@@ -4,7 +4,7 @@ use crate::config::TelegramConfig;
 use crate::domain::raw_logs::{CreateRawLog, InputChannel, SourceType};
 use crate::error::AppError;
 
-pub use crate::config::TelegramCallbackMode;
+pub use crate::config::ConnectorRuntimeMode as TelegramCallbackMode;
 pub use crate::config::TelegramConfig as TelegramConnectorConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

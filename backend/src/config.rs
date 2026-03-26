@@ -5,6 +5,8 @@ pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub telegram: TelegramConfig,
+    pub feishu: FeishuConfig,
+    pub wechat_bridge: WechatBridgeConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,14 +26,30 @@ pub struct TelegramConfig {
     pub enabled: bool,
     pub bot_token: Option<String>,
     pub allowlist_chat_ids: Vec<i64>,
-    pub callback_mode: TelegramCallbackMode,
+    pub callback_mode: ConnectorRuntimeMode,
     pub webhook_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TelegramCallbackMode {
+pub enum ConnectorRuntimeMode {
     Polling,
     Webhook,
+    Bridge,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeishuConfig {
+    pub enabled: bool,
+    pub app_id: Option<String>,
+    pub app_secret: Option<String>,
+    pub callback_mode: ConnectorRuntimeMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WechatBridgeConfig {
+    pub enabled: bool,
+    pub endpoint: Option<String>,
+    pub shared_secret: Option<String>,
 }
 
 impl Config {
@@ -88,9 +106,40 @@ impl Config {
             .get("TELEGRAM_CALLBACK_MODE")
             .map(|value| parse_callback_mode(value))
             .transpose()?
-            .unwrap_or(TelegramCallbackMode::Polling);
+            .unwrap_or(ConnectorRuntimeMode::Polling);
         let telegram_webhook_base_url = env
             .get("TELEGRAM_WEBHOOK_BASE_URL")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let feishu_enabled = env
+            .get("FEISHU_ENABLED")
+            .map(|value| parse_bool(value, "FEISHU_ENABLED"))
+            .transpose()?
+            .unwrap_or(false);
+        let feishu_app_id = env
+            .get("FEISHU_APP_ID")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let feishu_app_secret = env
+            .get("FEISHU_APP_SECRET")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let feishu_callback_mode = env
+            .get("FEISHU_CALLBACK_MODE")
+            .map(|value| parse_callback_mode(value))
+            .transpose()?
+            .unwrap_or(ConnectorRuntimeMode::Webhook);
+        let wechat_bridge_enabled = env
+            .get("WECHAT_BRIDGE_ENABLED")
+            .map(|value| parse_bool(value, "WECHAT_BRIDGE_ENABLED"))
+            .transpose()?
+            .unwrap_or(false);
+        let wechat_bridge_endpoint = env
+            .get("WECHAT_BRIDGE_ENDPOINT")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let wechat_bridge_shared_secret = env
+            .get("WECHAT_BRIDGE_SHARED_SECRET")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
 
@@ -106,6 +155,17 @@ impl Config {
                 allowlist_chat_ids: telegram_allowlist_chat_ids,
                 callback_mode: telegram_callback_mode,
                 webhook_base_url: telegram_webhook_base_url,
+            },
+            feishu: FeishuConfig {
+                enabled: feishu_enabled,
+                app_id: feishu_app_id,
+                app_secret: feishu_app_secret,
+                callback_mode: feishu_callback_mode,
+            },
+            wechat_bridge: WechatBridgeConfig {
+                enabled: wechat_bridge_enabled,
+                endpoint: wechat_bridge_endpoint,
+                shared_secret: wechat_bridge_shared_secret,
             },
         })
     }
@@ -132,10 +192,11 @@ fn parse_allowlist_chat_ids(value: &str) -> Result<Vec<i64>, AppError> {
         .collect()
 }
 
-fn parse_callback_mode(value: &str) -> Result<TelegramCallbackMode, AppError> {
+fn parse_callback_mode(value: &str) -> Result<ConnectorRuntimeMode, AppError> {
     match value.trim() {
-        "polling" => Ok(TelegramCallbackMode::Polling),
-        "webhook" => Ok(TelegramCallbackMode::Webhook),
+        "polling" => Ok(ConnectorRuntimeMode::Polling),
+        "webhook" => Ok(ConnectorRuntimeMode::Webhook),
+        "bridge" => Ok(ConnectorRuntimeMode::Bridge),
         other => Err(AppError::Config(format!(
             "invalid TELEGRAM_CALLBACK_MODE: {other}"
         ))),
