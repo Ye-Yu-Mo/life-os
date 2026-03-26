@@ -4,6 +4,7 @@ pub mod error;
 pub mod http;
 pub mod repository;
 pub mod service;
+pub mod validation;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;

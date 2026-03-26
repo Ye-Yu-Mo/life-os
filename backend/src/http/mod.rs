@@ -1,3 +1,6 @@
+pub mod dto;
+pub mod routes;
+
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;

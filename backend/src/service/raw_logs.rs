@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::domain::raw_logs::{CreateRawLog, RawLog};
 use crate::error::AppError;
 use crate::repository::raw_logs::RawLogRepository;
+use crate::validation::logs::{validate_context_date, validate_raw_text};
 
 pub struct RawLogService {
     repository: Arc<dyn RawLogRepository>,
@@ -14,6 +15,8 @@ impl RawLogService {
     }
 
     pub async fn create(&self, input: CreateRawLog) -> Result<RawLog, AppError> {
+        validate_raw_text(&input.raw_text)?;
+        validate_context_date(input.context_date.as_deref())?;
         self.repository.create(input).await
     }
 
@@ -161,6 +164,62 @@ mod tests {
 
         assert_eq!(log.id, "log-1");
         assert_eq!(log.parse_status, ParseStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn create_rejects_empty_raw_text_before_repository_call() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        let service = RawLogService::new(repository.clone());
+
+        let error = service
+            .create(CreateRawLog {
+                raw_text: "".to_string(),
+                ..sample_create_raw_log()
+            })
+            .await
+            .expect_err("empty raw_text should fail");
+
+        match error {
+            AppError::Validation(message) => assert!(message.contains("raw_text")),
+            other => panic!("expected validation error, got {other:?}"),
+        }
+
+        assert_eq!(
+            repository
+                .created_inputs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn create_rejects_invalid_context_date_before_repository_call() {
+        let repository = Arc::new(FakeRawLogRepository::default());
+        let service = RawLogService::new(repository.clone());
+
+        let error = service
+            .create(CreateRawLog {
+                context_date: Some("2026-99-99".to_string()),
+                ..sample_create_raw_log()
+            })
+            .await
+            .expect_err("invalid context_date should fail");
+
+        match error {
+            AppError::Validation(message) => assert!(message.contains("context_date")),
+            other => panic!("expected validation error, got {other:?}"),
+        }
+
+        assert_eq!(
+            repository
+                .created_inputs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len(),
+            0
+        );
     }
 
     #[test]
