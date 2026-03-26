@@ -7,6 +7,9 @@ pub enum InputChannel {
     Cli,
     Api,
     Import,
+    Telegram,
+    Feishu,
+    WechatBridge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

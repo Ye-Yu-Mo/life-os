@@ -1,5 +1,6 @@
 import { Descriptions, Drawer, Tag, Typography } from 'antd'
 import type { RawLog } from '../api/logs'
+import { formatInputChannelLabel, formatSourceTypeLabel } from './rawLogLabels'
 
 type RawLogDetailProps = {
   log: RawLog | null
@@ -31,8 +32,12 @@ export default function RawLogDetail({
           <Descriptions.Item label="Status">
             <Tag color="blue">{log.parse_status}</Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="Input Channel">{log.input_channel}</Descriptions.Item>
-          <Descriptions.Item label="Source Type">{log.source_type}</Descriptions.Item>
+          <Descriptions.Item label="Input Channel">
+            {formatInputChannelLabel(log.input_channel)}
+          </Descriptions.Item>
+          <Descriptions.Item label="Source Type">
+            {formatSourceTypeLabel(log.source_type)}
+          </Descriptions.Item>
           <Descriptions.Item label="Context Date">
             {log.context_date ?? '-'}
           </Descriptions.Item>

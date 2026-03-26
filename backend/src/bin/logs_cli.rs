@@ -5,7 +5,7 @@ use clap::Parser;
 use serde::Deserialize;
 use std::process::ExitCode;
 
-const DEFAULT_API_BASE_URL: &str = "http://127.0.0.1:22345";
+const DEFAULT_API_BASE_URL: &str = "http://127.0.0.1:3000";
 
 #[derive(Debug, Parser, PartialEq, Eq)]
 #[command(name = "logs-cli")]

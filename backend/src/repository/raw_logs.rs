@@ -205,6 +205,9 @@ fn parse_input_channel(value: &str) -> Result<crate::domain::raw_logs::InputChan
         "cli" => Ok(crate::domain::raw_logs::InputChannel::Cli),
         "api" => Ok(crate::domain::raw_logs::InputChannel::Api),
         "import" => Ok(crate::domain::raw_logs::InputChannel::Import),
+        "telegram" => Ok(crate::domain::raw_logs::InputChannel::Telegram),
+        "feishu" => Ok(crate::domain::raw_logs::InputChannel::Feishu),
+        "wechat_bridge" => Ok(crate::domain::raw_logs::InputChannel::WechatBridge),
         other => Err(AppError::InternalState(format!(
             "unknown input_channel value: {other}"
         ))),
@@ -242,6 +245,9 @@ fn format_input_channel(value: crate::domain::raw_logs::InputChannel) -> &'stati
         crate::domain::raw_logs::InputChannel::Cli => "cli",
         crate::domain::raw_logs::InputChannel::Api => "api",
         crate::domain::raw_logs::InputChannel::Import => "import",
+        crate::domain::raw_logs::InputChannel::Telegram => "telegram",
+        crate::domain::raw_logs::InputChannel::Feishu => "feishu",
+        crate::domain::raw_logs::InputChannel::WechatBridge => "wechat_bridge",
     }
 }
 
@@ -260,5 +266,33 @@ fn format_parse_status(value: crate::domain::raw_logs::ParseStatus) -> &'static 
         crate::domain::raw_logs::ParseStatus::Partial => "partial",
         crate::domain::raw_logs::ParseStatus::Failed => "failed",
         crate::domain::raw_logs::ParseStatus::NeedsReview => "needs_review",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_input_channel, parse_input_channel};
+    use crate::domain::raw_logs::InputChannel;
+
+    #[test]
+    fn repository_parses_expanded_input_channels() {
+        for (raw, expected) in [
+            ("telegram", InputChannel::Telegram),
+            ("feishu", InputChannel::Feishu),
+            ("wechat_bridge", InputChannel::WechatBridge),
+        ] {
+            let parsed = parse_input_channel(raw).expect("input channel should parse");
+            assert_eq!(parsed, expected);
+        }
+    }
+
+    #[test]
+    fn repository_formats_expanded_input_channels() {
+        assert_eq!(format_input_channel(InputChannel::Telegram), "telegram");
+        assert_eq!(format_input_channel(InputChannel::Feishu), "feishu");
+        assert_eq!(
+            format_input_channel(InputChannel::WechatBridge),
+            "wechat_bridge"
+        );
     }
 }

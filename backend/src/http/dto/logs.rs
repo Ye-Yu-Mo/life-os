@@ -153,6 +153,9 @@ fn parse_input_channel(value: &str) -> Result<InputChannel, crate::error::AppErr
         "cli" => Ok(InputChannel::Cli),
         "api" => Ok(InputChannel::Api),
         "import" => Ok(InputChannel::Import),
+        "telegram" => Ok(InputChannel::Telegram),
+        "feishu" => Ok(InputChannel::Feishu),
+        "wechat_bridge" => Ok(InputChannel::WechatBridge),
         other => Err(crate::error::AppError::Validation(format!(
             "invalid input_channel: {other}"
         ))),
@@ -177,6 +180,9 @@ fn format_input_channel(value: InputChannel) -> &'static str {
         InputChannel::Cli => "cli",
         InputChannel::Api => "api",
         InputChannel::Import => "import",
+        InputChannel::Telegram => "telegram",
+        InputChannel::Feishu => "feishu",
+        InputChannel::WechatBridge => "wechat_bridge",
     }
 }
 
@@ -195,5 +201,81 @@ fn format_parse_status(value: crate::domain::raw_logs::ParseStatus) -> &'static 
         crate::domain::raw_logs::ParseStatus::Partial => "partial",
         crate::domain::raw_logs::ParseStatus::Failed => "failed",
         crate::domain::raw_logs::ParseStatus::NeedsReview => "needs_review",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+
+    use super::{CreateRawLogRequest, RawLogResponse};
+    use crate::domain::raw_logs::{CreateRawLog, InputChannel, ParseStatus, RawLog, SourceType};
+
+    #[test]
+    fn create_raw_log_request_accepts_expanded_input_channels() {
+        for input_channel in [
+            "mobile",
+            "cli",
+            "import",
+            "telegram",
+            "feishu",
+            "wechat_bridge",
+        ] {
+            let request = CreateRawLogRequest {
+                user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+                raw_text: "今天 9:40 起床".to_string(),
+                input_channel: input_channel.to_string(),
+                source_type: "manual".to_string(),
+                context_date: Some("2026-03-26".to_string()),
+                timezone: Some("Asia/Shanghai".to_string()),
+            };
+
+            let created: CreateRawLog = request
+                .try_into()
+                .expect("expanded input channel should parse");
+
+            match input_channel {
+                "mobile" => assert_eq!(created.input_channel, InputChannel::Mobile),
+                "cli" => assert_eq!(created.input_channel, InputChannel::Cli),
+                "import" => assert_eq!(created.input_channel, InputChannel::Import),
+                "telegram" => assert_eq!(created.input_channel, InputChannel::Telegram),
+                "feishu" => assert_eq!(created.input_channel, InputChannel::Feishu),
+                "wechat_bridge" => {
+                    assert_eq!(created.input_channel, InputChannel::WechatBridge)
+                }
+                _ => unreachable!("unexpected input channel"),
+            }
+        }
+    }
+
+    #[test]
+    fn raw_log_response_formats_expanded_input_channels() {
+        let created_at = Utc
+            .with_ymd_and_hms(2026, 3, 26, 2, 0, 0)
+            .single()
+            .expect("time should be valid");
+
+        for (input_channel, expected) in [
+            (InputChannel::Telegram, "telegram"),
+            (InputChannel::Feishu, "feishu"),
+            (InputChannel::WechatBridge, "wechat_bridge"),
+        ] {
+            let response = RawLogResponse::from(RawLog {
+                id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+                raw_text: "今天 9:40 起床".to_string(),
+                input_channel,
+                source_type: SourceType::Manual,
+                context_date: Some("2026-03-26".to_string()),
+                timezone: Some("Asia/Shanghai".to_string()),
+                parse_status: ParseStatus::Pending,
+                parser_version: None,
+                parse_error: None,
+                created_at,
+                updated_at: created_at,
+            });
+
+            assert_eq!(response.input_channel, expected);
+        }
     }
 }

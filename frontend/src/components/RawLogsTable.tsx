@@ -1,5 +1,6 @@
 import { Button, List, Space, Tag, Typography } from 'antd'
 import type { RawLog } from '../api/logs'
+import { formatInputChannelLabel, formatSourceTypeLabel } from './rawLogLabels'
 
 type RawLogsTableProps = {
   logs: RawLog[]
@@ -22,8 +23,8 @@ export default function RawLogsTable({ logs, onViewDetail }: RawLogsTableProps) 
           <Space direction="vertical" size={8} style={{ display: 'flex' }}>
             <Space wrap>
               <Tag color="blue">{log.parse_status}</Tag>
-              <Tag>{log.input_channel}</Tag>
-              <Tag>{log.source_type}</Tag>
+              <Tag>{formatInputChannelLabel(log.input_channel)}</Tag>
+              <Tag>{formatSourceTypeLabel(log.source_type)}</Tag>
             </Space>
             <Typography.Text strong>{log.raw_text}</Typography.Text>
             <Typography.Text type="secondary">{log.created_at}</Typography.Text>
