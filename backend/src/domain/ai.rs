@@ -57,6 +57,26 @@ pub struct AiDecisionInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiToolKind {
+    FoodCategory,
+    BillCategory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiToolInput {
+    pub kind: AiToolKind,
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiToolOutput {
+    pub kind: AiToolKind,
+    pub normalized_value: String,
+    pub confidence: u8,
+    pub cache_key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiExecutionStatus {
     Completed,
     Rejected,
@@ -105,7 +125,8 @@ pub struct AiRunResult {
 mod tests {
     use crate::domain::ai::{
         AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
-        AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
+        AiToolInput, AiToolKind, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput,
+        AiRunContext, AiRunRecord, AiRunResult,
     };
 
     #[test]
@@ -248,5 +269,30 @@ mod tests {
         assert_eq!(decision.decision_type, "query_only");
         assert_eq!(decision.module, "ledger");
         assert_eq!(decision.action_count, 1);
+    }
+
+    #[test]
+    fn tool_input_keeps_narrow_kind_and_payload() {
+        let input = AiToolInput {
+            kind: AiToolKind::FoodCategory,
+            payload: "鸡胸肉便当".to_string(),
+        };
+
+        assert_eq!(input.kind, AiToolKind::FoodCategory);
+        assert_eq!(input.payload, "鸡胸肉便当");
+    }
+
+    #[test]
+    fn tool_output_is_structured_and_not_free_text() {
+        let output = AiToolOutput {
+            kind: AiToolKind::BillCategory,
+            normalized_value: "food.drink".to_string(),
+            confidence: 94,
+            cache_key: "bill:luckin".to_string(),
+        };
+
+        assert_eq!(output.kind, AiToolKind::BillCategory);
+        assert_eq!(output.normalized_value, "food.drink");
+        assert_eq!(output.confidence, 94);
     }
 }

@@ -4,8 +4,8 @@ use async_trait::async_trait;
 
 use crate::domain::ai::{
     AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
-    AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
-    ValidationOutcome,
+    AiToolInput, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput, AiRunContext,
+    AiRunRecord, AiRunResult, ValidationOutcome,
 };
 use crate::error::AppError;
 
@@ -20,6 +20,11 @@ pub trait AiUnderstandingProvider: Send + Sync {
 #[async_trait]
 pub trait AiDecisionProvider: Send + Sync {
     async fn decide_input(&self, input: AiDecisionInput) -> Result<AiDecisionOutput, AppError>;
+}
+
+#[async_trait]
+pub trait AiToolProvider: Send + Sync {
+    async fn call(&self, input: AiToolInput) -> Result<AiToolOutput, AppError>;
 }
 
 #[async_trait]
@@ -81,12 +86,30 @@ pub struct FakeAiDecisionEngine {
     response: StoredResult<AiDecisionOutput>,
 }
 
+pub struct FakeAiToolProvider {
+    response: StoredResult<AiToolOutput>,
+}
+
 enum StoredResult<T> {
     Ready(Result<T, AppError>),
 }
 
 impl FakeAiDecisionEngine {
     pub fn with_response(response: AiDecisionOutput) -> Self {
+        Self {
+            response: StoredResult::Ready(Ok(response)),
+        }
+    }
+
+    pub fn with_error(error: AppError) -> Self {
+        Self {
+            response: StoredResult::Ready(Err(error)),
+        }
+    }
+}
+
+impl FakeAiToolProvider {
+    pub fn with_response(response: AiToolOutput) -> Self {
         Self {
             response: StoredResult::Ready(Ok(response)),
         }
@@ -133,6 +156,34 @@ impl AiUnderstandingProvider for FakeAiUnderstander {
 #[async_trait]
 impl AiDecisionProvider for FakeAiDecisionEngine {
     async fn decide_input(&self, _input: AiDecisionInput) -> Result<AiDecisionOutput, AppError> {
+        match &self.response {
+            StoredResult::Ready(Ok(output)) => Ok(output.clone()),
+            StoredResult::Ready(Err(AppError::Config(message))) => {
+                Err(AppError::Config(message.clone()))
+            }
+            StoredResult::Ready(Err(AppError::Validation(message))) => {
+                Err(AppError::Validation(message.clone()))
+            }
+            StoredResult::Ready(Err(AppError::NotFound(message))) => {
+                Err(AppError::NotFound(message.clone()))
+            }
+            StoredResult::Ready(Err(AppError::InternalState(message))) => {
+                Err(AppError::InternalState(message.clone()))
+            }
+            StoredResult::Ready(Err(AppError::Internal)) => Err(AppError::Internal),
+            StoredResult::Ready(Err(AppError::Database(_))) => {
+                Err(AppError::InternalState("database error not supported in fake".to_string()))
+            }
+            StoredResult::Ready(Err(AppError::Migration(_))) => {
+                Err(AppError::InternalState("migration error not supported in fake".to_string()))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl AiToolProvider for FakeAiToolProvider {
+    async fn call(&self, _input: AiToolInput) -> Result<AiToolOutput, AppError> {
         match &self.response {
             StoredResult::Ready(Ok(output)) => Ok(output.clone()),
             StoredResult::Ready(Err(AppError::Config(message))) => {
@@ -234,13 +285,14 @@ mod tests {
 
     use crate::domain::ai::{
         AiDecisionInput, AiDecisionOutput, AiExecutionOutcome, AiExecutionStatus, AiIntent,
-        AiUnderstandingInput, AiUnderstandingOutput, AiRunContext, AiRunRecord, AiRunResult,
-        ValidationOutcome,
+        AiToolInput, AiToolKind, AiToolOutput, AiUnderstandingInput, AiUnderstandingOutput,
+        AiRunContext, AiRunRecord, AiRunResult, ValidationOutcome,
     };
     use crate::error::AppError;
     use crate::service::ai::{
         AiDecisionEngine, AiDecisionProvider, AiExecutor, AiRunner, AiUnderstander,
-        AiUnderstandingProvider, AiValidator, FakeAiDecisionEngine, FakeAiUnderstander,
+        AiToolProvider, AiUnderstandingProvider, AiValidator, FakeAiDecisionEngine,
+        FakeAiToolProvider, FakeAiUnderstander,
     };
 
     #[derive(Default)]
@@ -645,6 +697,69 @@ mod tests {
         match error {
             AppError::InternalState(message) => {
                 assert!(message.contains("decision failed"));
+            }
+            other => panic!("expected internal state error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn fake_tool_provider_returns_structured_food_category_output() {
+        let provider = FakeAiToolProvider::with_response(AiToolOutput {
+            kind: AiToolKind::FoodCategory,
+            normalized_value: "protein.chicken".to_string(),
+            confidence: 96,
+            cache_key: "food:chicken_box".to_string(),
+        });
+
+        let result = provider
+            .call(AiToolInput {
+                kind: AiToolKind::FoodCategory,
+                payload: "鸡胸肉便当".to_string(),
+            })
+            .await
+            .expect("tool call should succeed");
+
+        assert_eq!(result.kind, AiToolKind::FoodCategory);
+        assert_eq!(result.normalized_value, "protein.chicken");
+    }
+
+    #[tokio::test]
+    async fn fake_tool_provider_returns_structured_bill_category_output() {
+        let provider = FakeAiToolProvider::with_response(AiToolOutput {
+            kind: AiToolKind::BillCategory,
+            normalized_value: "transport.taxi".to_string(),
+            confidence: 91,
+            cache_key: "bill:taxi".to_string(),
+        });
+
+        let result = provider
+            .call(AiToolInput {
+                kind: AiToolKind::BillCategory,
+                payload: "滴滴打车 48".to_string(),
+            })
+            .await
+            .expect("tool call should succeed");
+
+        assert_eq!(result.kind, AiToolKind::BillCategory);
+        assert_eq!(result.normalized_value, "transport.taxi");
+    }
+
+    #[tokio::test]
+    async fn fake_tool_provider_surfaces_tool_failure() {
+        let provider =
+            FakeAiToolProvider::with_error(AppError::InternalState("tool failed".to_string()));
+
+        let error = provider
+            .call(AiToolInput {
+                kind: AiToolKind::BillCategory,
+                payload: "瑞幸 26".to_string(),
+            })
+            .await
+            .expect_err("tool call should fail");
+
+        match error {
+            AppError::InternalState(message) => {
+                assert!(message.contains("tool failed"));
             }
             other => panic!("expected internal state error, got {other:?}"),
         }
