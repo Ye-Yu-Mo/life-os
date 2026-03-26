@@ -1,6 +1,9 @@
 pub mod config;
+pub mod domain;
 pub mod error;
 pub mod http;
+pub mod repository;
+pub mod service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
